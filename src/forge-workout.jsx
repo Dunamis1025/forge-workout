@@ -229,12 +229,20 @@ export default function WorkoutTracker() {
 
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages })
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4000, messages })
       });
       const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
       const text = data.content?.map(b => b.text || "").join("") || "";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found");
+      const parsed = JSON.parse(jsonMatch[0]);
       setAiResult(parsed.analysis || "");
       if (parsed.program) {
         setProgram(parsed.program);
@@ -242,8 +250,8 @@ export default function WorkoutTracker() {
         setTab("today");
         showToast("✅ New program applied!");
       }
-    } catch {
-      setAiError("Something went wrong. Please try again.");
+    } catch (e) {
+      setAiError("Something went wrong: " + e.message);
     } finally {
       setAiLoading(false);
     }
