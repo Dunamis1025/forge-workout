@@ -104,8 +104,10 @@ export default function WorkoutTracker() {
   const [restTimer, setRestTimer] = useState(null);
   const [restSeconds, setRestSeconds] = useState(0);
   const [restExName, setRestExName] = useState("");
+  const [timerScreen, setTimerScreen] = useState(false);
   const timerRef = useRef(null);
   const fileInputRef = useRef();
+  const inputRefs = useRef({});
 
   const currentLogs = allWeeks[currentWeekKey] || {};
 
@@ -139,11 +141,14 @@ export default function WorkoutTracker() {
     setRestTimer(seconds);
     setRestSeconds(seconds);
     setRestExName(exName);
+    setTimerScreen(true);
     timerRef.current = setInterval(() => {
       setRestSeconds(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current);
           setRestTimer(null);
+          setTimerScreen(false);
+          if (window.navigator?.vibrate) window.navigator.vibrate([200, 100, 200]);
           return 0;
         }
         return prev - 1;
@@ -155,6 +160,7 @@ export default function WorkoutTracker() {
     if (timerRef.current) clearInterval(timerRef.current);
     setRestTimer(null);
     setRestSeconds(0);
+    setTimerScreen(false);
   }
 
   function handleImageChange(e) {
@@ -284,28 +290,31 @@ export default function WorkoutTracker() {
         ))}
       </div>
 
-      {/* REST TIMER OVERLAY */}
-      {restTimer !== null && (
-        <div style={{ background: "#0d0d0d", borderBottom: "1px solid #1e1e1e", padding: "20px", textAlign: "center" }}>
-          <div style={{ fontSize: "0.7rem", color: "#888", letterSpacing: "3px", marginBottom: 8, fontFamily: "'Bebas Neue'" }}>REST TIMER</div>
-          <div style={{ position: "relative", width: 100, height: 100, margin: "0 auto 12px" }}>
-            <svg width="100" height="100" style={{ transform: "rotate(-90deg)" }}>
-              <circle cx="50" cy="50" r="44" fill="none" stroke="#1e1e1e" strokeWidth="6" />
-              <circle cx="50" cy="50" r="44" fill="none" stroke="#c8a96e" strokeWidth="6"
-                strokeDasharray={`${2 * Math.PI * 44}`}
-                strokeDashoffset={`${2 * Math.PI * 44 * (1 - timerPct / 100)}`}
+      {/* FULLSCREEN REST TIMER */}
+      {timerScreen && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#0a0a0a", zIndex: 100, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ fontSize: "0.75rem", color: "#555", letterSpacing: "4px", fontFamily: "'Bebas Neue'", marginBottom: 16 }}>REST TIMER</div>
+          <div style={{ fontSize: "0.95rem", color: "#888", marginBottom: 40 }}>{restExName}</div>
+          <div style={{ position: "relative", width: 220, height: 220, marginBottom: 48 }}>
+            <svg width="220" height="220" style={{ transform: "rotate(-90deg)" }}>
+              <circle cx="110" cy="110" r="100" fill="none" stroke="#1a1a1a" strokeWidth="8" />
+              <circle cx="110" cy="110" r="100" fill="none" stroke="#c8a96e" strokeWidth="8"
+                strokeDasharray={`${2 * Math.PI * 100}`}
+                strokeDashoffset={`${2 * Math.PI * 100 * (1 - timerPct / 100)}`}
                 strokeLinecap="round" style={{ transition: "stroke-dashoffset 1s linear" }} />
             </svg>
             <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center" }}>
-              <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", color: "#f0ede6", lineHeight: 1 }}>
+              <div style={{ fontFamily: "'Bebas Neue'", fontSize: "4rem", color: "#f0ede6", lineHeight: 1 }}>
                 {timerMin}:{String(timerSec).padStart(2, "0")}
               </div>
+              <div style={{ fontSize: "0.7rem", color: "#555", letterSpacing: "2px", marginTop: 4 }}>MIN.SEC</div>
             </div>
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#888", marginBottom: 12 }}>{restExName}</div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <button className="set-btn" onClick={() => setRestSeconds(s => s + 15)}>+15s</button>
-            <button className="set-btn" onClick={skipTimer}>SKIP ↑</button>
+          <div style={{ display: "flex", gap: 16 }}>
+            <button className="set-btn" style={{ padding: "12px 28px", fontSize: "0.9rem" }}
+              onClick={() => setRestSeconds(s => s + 15)}>+15s</button>
+            <button className="set-btn" style={{ padding: "12px 28px", fontSize: "0.9rem" }}
+              onClick={skipTimer}>SKIP ↑</button>
           </div>
         </div>
       )}
@@ -352,14 +361,33 @@ export default function WorkoutTracker() {
                       const currR = getLog(selectedDayIdx, exIdx, setIdx, "reps");
                       const done = getLog(selectedDayIdx, exIdx, setIdx, "done") === "1";
                       const improvement = currW && prevW ? parseFloat(currW) - parseFloat(prevW) : null;
+                      const weightKey = `w-${selectedDayIdx}-${exIdx}-${setIdx}`;
+                      const repsKey = `r-${selectedDayIdx}-${exIdx}-${setIdx}`;
 
                       return (
                         <div key={setIdx} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr auto", gap: 6, alignItems: "center", opacity: done ? 0.5 : 1 }}>
                           <div style={{ fontSize: "0.72rem", color: "#555", textAlign: "center" }}>S{setIdx + 1}</div>
-                          <input className="log-input" type="number" placeholder="—" value={currW}
-                            onChange={e => updateLog(selectedDayIdx, exIdx, setIdx, "weight", e.target.value)} />
-                          <input className="log-input" type="number" placeholder="—" value={currR}
-                            onChange={e => updateLog(selectedDayIdx, exIdx, setIdx, "reps", e.target.value)} />
+                          <input
+                            className="log-input"
+                            type="number"
+                            inputMode="decimal"
+                            placeholder="—"
+                            value={currW}
+                            ref={el => { inputRefs.current[weightKey] = el; }}
+                            onChange={e => updateLog(selectedDayIdx, exIdx, setIdx, "weight", e.target.value)}
+                            onBlur={() => {
+                              if (inputRefs.current[repsKey]) inputRefs.current[repsKey].focus();
+                            }}
+                          />
+                          <input
+                            className="log-input"
+                            type="number"
+                            inputMode="numeric"
+                            placeholder="—"
+                            value={currR}
+                            ref={el => { inputRefs.current[repsKey] = el; }}
+                            onChange={e => updateLog(selectedDayIdx, exIdx, setIdx, "reps", e.target.value)}
+                          />
                           <div style={{ textAlign: "center", fontSize: "0.72rem" }}>
                             <div style={{ color: "#666" }}>{prevStr}</div>
                             {improvement !== null && (
@@ -372,6 +400,7 @@ export default function WorkoutTracker() {
                             className="set-btn"
                             style={{ background: done ? "#1a2a1a" : "#1a1a1a", borderColor: done ? "#3a6a3a" : "#2a2a2a", color: done ? "#6ec87a" : "#888", padding: "5px 8px" }}
                             onClick={() => {
+
                               updateLog(selectedDayIdx, exIdx, setIdx, "done", done ? "" : "1");
                               if (!done) startRestTimer(ex.rest, ex.name);
                             }}
