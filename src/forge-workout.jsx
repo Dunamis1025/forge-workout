@@ -101,11 +101,6 @@ export default function WorkoutTracker() {
   const [aiResult, setAiResult] = useState("");
   const [aiError, setAiError] = useState("");
   const [toast, setToast] = useState("");
-  const [restTimer, setRestTimer] = useState(null);
-  const [restSeconds, setRestSeconds] = useState(0);
-  const [restExName, setRestExName] = useState("");
-  const [timerScreen, setTimerScreen] = useState(false);
-  const timerRef = useRef(null);
   const fileInputRef = useRef();
   const inputRefs = useRef({});
 
@@ -134,55 +129,6 @@ export default function WorkoutTracker() {
     if (currIdx <= 0) return null;
     const prevKey = weeks[currIdx - 1];
     return allWeeks[prevKey]?.[`${dayIdx}-${exIdx}-${setIdx}`]?.[field] || null;
-  }
-
-  function playAlarm() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const beep = (freq, start, duration) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = "sine";
-        gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + duration);
-      };
-      beep(880, 0, 0.3);
-      beep(880, 0.35, 0.3);
-      beep(1100, 0.7, 0.5);
-    } catch {}
-  }
-
-  function startRestTimer(seconds, exName) {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setRestTimer(seconds);
-    setRestSeconds(seconds);
-    setRestExName(exName);
-    setTimerScreen(true);
-    timerRef.current = setInterval(() => {
-      setRestSeconds(prev => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          setRestTimer(null);
-          setTimerScreen(false);
-          if (window.navigator?.vibrate) window.navigator.vibrate([200, 100, 200]);
-          playAlarm();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
-  function skipTimer() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setRestTimer(null);
-    setRestSeconds(0);
-    setTimerScreen(false);
   }
 
   function handleImageChange(e) {
@@ -257,9 +203,7 @@ export default function WorkoutTracker() {
     }
   }
 
-  // Progress data: per exercise, collect max weight per week
   function getProgressData(dayIdx, exIdx) {
-    const exName = program[dayIdx]?.exercises[exIdx]?.name;
     const numSets = program[dayIdx]?.exercises[exIdx]?.sets || 4;
     const weeks = Object.keys(allWeeks).sort();
     return weeks.map(wk => {
@@ -274,10 +218,6 @@ export default function WorkoutTracker() {
 
   const todayExercises = program[selectedDayIdx]?.exercises || [];
 
-  const timerPct = restTimer ? (restSeconds / restTimer) * 100 : 0;
-  const timerMin = Math.floor(restSeconds / 60);
-  const timerSec = restSeconds % 60;
-
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", color: "#f0ede6" }}>
       <style>{`
@@ -290,8 +230,6 @@ export default function WorkoutTracker() {
         .day-btn.active { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; }
         .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 4px; padding: 6px 8px; width: 64px; text-align: center; font-size: 0.9rem; }
         .log-input:focus { outline: none; border-color: #c8a96e; }
-        .set-btn { background: #1a1a1a; border: 1px solid #2a2a2a; color: #888; border-radius: 4px; padding: 6px 10px; font-size: 0.78rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
-        .set-btn:hover { border-color: #c8a96e; color: #c8a96e; }
         .physique-btn { background: #111; border: 1px solid #2a2a2a; color: #888; border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: all 0.2s; text-align: left; }
         .physique-btn.active { border-color: #c8a96e; color: #f0ede6; background: #1a1612; }
         .ai-btn { background: #c8a96e; color: #0a0a0a; border: none; font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 2px; padding: 14px 32px; border-radius: 6px; cursor: pointer; width: 100%; }
@@ -320,35 +258,6 @@ export default function WorkoutTracker() {
         ))}
       </div>
 
-      {/* FULLSCREEN REST TIMER */}
-      {timerScreen && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#0a0a0a", zIndex: 100, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ fontSize: "0.75rem", color: "#555", letterSpacing: "4px", fontFamily: "'Bebas Neue'", marginBottom: 16 }}>REST TIMER</div>
-          <div style={{ fontSize: "0.95rem", color: "#888", marginBottom: 40 }}>{restExName}</div>
-          <div style={{ position: "relative", width: 220, height: 220, marginBottom: 48 }}>
-            <svg width="220" height="220" style={{ transform: "rotate(-90deg)" }}>
-              <circle cx="110" cy="110" r="100" fill="none" stroke="#1a1a1a" strokeWidth="8" />
-              <circle cx="110" cy="110" r="100" fill="none" stroke="#c8a96e" strokeWidth="8"
-                strokeDasharray={`${2 * Math.PI * 100}`}
-                strokeDashoffset={`${2 * Math.PI * 100 * (1 - timerPct / 100)}`}
-                strokeLinecap="round" style={{ transition: "stroke-dashoffset 1s linear" }} />
-            </svg>
-            <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center" }}>
-              <div style={{ fontFamily: "'Bebas Neue'", fontSize: "4rem", color: "#f0ede6", lineHeight: 1 }}>
-                {timerMin}:{String(timerSec).padStart(2, "0")}
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "#555", letterSpacing: "2px", marginTop: 4 }}>MIN.SEC</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 16 }}>
-            <button className="set-btn" style={{ padding: "12px 28px", fontSize: "0.9rem" }}
-              onClick={() => setRestSeconds(s => s + 15)}>+15s</button>
-            <button className="set-btn" style={{ padding: "12px 28px", fontSize: "0.9rem" }}
-              onClick={skipTimer}>SKIP ↑</button>
-          </div>
-        </div>
-      )}
-
       {/* TODAY TAB */}
       {tab === "today" && (
         <div style={{ padding: "16px 20px" }}>
@@ -365,22 +274,18 @@ export default function WorkoutTracker() {
               const numSets = ex.sets;
               return (
                 <div key={exIdx} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{ex.name}</div>
-                      <div style={{ fontSize: "0.75rem", color: "#666", marginTop: 2 }}>{ex.sets} sets · {ex.reps} reps · {ex.rest}s rest</div>
-                    </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{ex.name}</div>
+                    <div style={{ fontSize: "0.75rem", color: "#666", marginTop: 2 }}>{ex.sets} sets · {ex.reps} reps · {ex.rest}s rest</div>
                   </div>
 
-                  {/* Set rows */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {/* Header */}
-                    <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr auto", gap: 6, alignItems: "center" }}>
-                      <div style={{ fontSize: "0.65rem", color: "#555" }}></div>
+                    <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr", gap: 6, alignItems: "center" }}>
+                      <div />
                       <div style={{ fontSize: "0.65rem", color: "#555", textAlign: "center" }}>Weight (kg)</div>
                       <div style={{ fontSize: "0.65rem", color: "#555", textAlign: "center" }}>Reps</div>
                       <div style={{ fontSize: "0.65rem", color: "#555", textAlign: "center" }}>Last week</div>
-                      <div style={{ fontSize: "0.65rem", color: "#555", textAlign: "center" }}>Done</div>
                     </div>
 
                     {Array.from({ length: numSets }).map((_, setIdx) => {
@@ -389,13 +294,12 @@ export default function WorkoutTracker() {
                       const prevStr = prevW ? `${prevW}kg${prevR ? ` × ${prevR}` : ""}` : "—";
                       const currW = getLog(selectedDayIdx, exIdx, setIdx, "weight");
                       const currR = getLog(selectedDayIdx, exIdx, setIdx, "reps");
-                      const done = getLog(selectedDayIdx, exIdx, setIdx, "done") === "1";
                       const improvement = currW && prevW ? parseFloat(currW) - parseFloat(prevW) : null;
                       const weightKey = `w-${selectedDayIdx}-${exIdx}-${setIdx}`;
                       const repsKey = `r-${selectedDayIdx}-${exIdx}-${setIdx}`;
 
                       return (
-                        <div key={setIdx} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr auto", gap: 6, alignItems: "center", opacity: done ? 0.5 : 1 }}>
+                        <div key={setIdx} style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 1fr", gap: 6, alignItems: "center" }}>
                           <div style={{ fontSize: "0.72rem", color: "#555", textAlign: "center" }}>S{setIdx + 1}</div>
                           <input
                             className="log-input"
@@ -426,17 +330,6 @@ export default function WorkoutTracker() {
                               </div>
                             )}
                           </div>
-                          <button
-                            className="set-btn"
-                            style={{ background: done ? "#1a2a1a" : "#1a1a1a", borderColor: done ? "#3a6a3a" : "#2a2a2a", color: done ? "#6ec87a" : "#888", padding: "5px 8px" }}
-                            onClick={() => {
-
-                              updateLog(selectedDayIdx, exIdx, setIdx, "done", done ? "" : "1");
-                              if (!done) startRestTimer(ex.rest, ex.name);
-                            }}
-                          >
-                            {done ? "✓" : "Done"}
-                          </button>
                         </div>
                       );
                     })}
@@ -453,7 +346,6 @@ export default function WorkoutTracker() {
         <div style={{ padding: "16px 20px" }}>
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.1rem", letterSpacing: "3px", color: "#c8a96e", marginBottom: 14 }}>Progressive Overload</div>
 
-          {/* Day selector */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             {program.map((d, i) => (
               <button key={i} className={`day-btn${selectedDayIdx === i ? " active" : ""}`} onClick={() => setSelectedDayIdx(i)}>
@@ -492,7 +384,6 @@ export default function WorkoutTracker() {
                     </div>
                   </div>
 
-                  {/* Bar chart */}
                   <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 70 }}>
                     {data.map((d, i) => {
                       const pct = maxW === minW ? 100 : ((d.weight - minW) / (maxW - minW)) * 75 + 25;
@@ -511,7 +402,6 @@ export default function WorkoutTracker() {
             })
           )}
 
-          {/* Weekly history */}
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.1rem", letterSpacing: "3px", color: "#c8a96e", margin: "20px 0 12px" }}>Weekly Log</div>
           {Object.keys(allWeeks).length === 0 && (
             <div style={{ color: "#555", fontSize: "0.85rem" }}>No logs yet.</div>
