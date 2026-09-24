@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const MUSCLE_GROUPS = [
   { id: "chest", name: "가슴", emoji: "🎯", subtags: [
@@ -167,6 +167,37 @@ export default function WorkoutTracker() {
   const [cardioMinutes, setCardioMinutes] = useState("");
   const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
   const [restRemaining, setRestRemaining] = useState(0);
+  const audioCtxRef = useRef(null);
+
+  function unlockAudio() {
+    // 아이폰은 사용자 클릭 등 '제스처' 안에서만 오디오 재생을 허용함 — 휴식 시작 버튼 클릭 시점에 미리 열어둠
+    if (!audioCtxRef.current) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) audioCtxRef.current = new Ctx();
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state === "suspended") audioCtxRef.current.resume();
+  }
+
+  function playBeep() {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const beepAt = (delay) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      const t = ctx.currentTime + delay;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    };
+    beepAt(0);
+    beepAt(0.6);
+  }
 
   const today = todayISO();
   const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, startTime: "", endTime: "", cardio: [], entries: [] };
@@ -194,7 +225,10 @@ export default function WorkoutTracker() {
   }, [restTimer]);
 
   useEffect(() => {
-    if (restTimer && restRemaining === 0 && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    if (restTimer && restRemaining === 0) {
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      playBeep();
+    }
   }, [restRemaining, restTimer]);
 
   useEffect(() => {
@@ -254,6 +288,7 @@ export default function WorkoutTracker() {
   }
 
   function addRound(entryId) {
+    unlockAudio();
     const entry = todaySession.entries.find(e => e.id === entryId);
     const seconds = entry?.restSeconds || DEFAULT_REST;
     persistSession({
