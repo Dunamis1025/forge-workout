@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const MUSCLE_GROUPS = [
   { id: "chest", name: "가슴", emoji: "🎯", subtags: [
@@ -40,11 +40,36 @@ const EXERCISE_PRESETS = {
   free_any: [],
 };
 
+const CARDIO_TYPES = ["러닝머신", "사이클", "일립티컬", "로잉머신", "스텝퍼", "기타"];
+
 const STORAGE_KEY = "forge_sessions_v3";
+const DEFAULT_REST = 90;
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
-function loadSessions() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
+function nowHHMM() { return new Date().toTimeString().slice(0, 5); }
+
+function loadSessions() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    // 이전 버전(flat sets) 데이터를 rounds 구조로 자동 변환 — 기존 기록 보존
+    return raw.map(s => ({
+      id: s.id || uid(),
+      date: s.date,
+      startTime: s.startTime || "",
+      endTime: s.endTime || "",
+      cardio: s.cardio || [],
+      entries: (s.entries || []).map(e => ({
+        id: e.id,
+        groupId: e.groupId,
+        subtagId: e.subtagId,
+        exerciseName: e.exerciseName,
+        restSeconds: e.restSeconds || DEFAULT_REST,
+        rounds: e.rounds && e.rounds.length ? e.rounds : [{ id: uid(), sets: e.sets || [{ weight: "", reps: "" }] }],
+      })),
+    }));
+  } catch { return []; }
+}
 function saveSessions(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {} }
 
 function daysAgoLabel(dateStr) {
@@ -59,6 +84,21 @@ function formatDateKR(dateStr) {
   const d = new Date(dateStr);
   const days = ["일", "월", "화", "수", "목", "금", "토"];
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+}
+
+function formatDuration(start, end) {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+}
+
+function formatSecs(sec) {
+  const s = Math.max(0, sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function getLastDoneMap(sessions, excludeToday) {
@@ -84,7 +124,7 @@ function getExerciseHistory(sessions, exerciseName, excludeDate) {
   const sorted = [...sessions].filter(s => s.date !== excludeDate).sort((a, b) => b.date.localeCompare(a.date));
   for (const s of sorted) {
     const e = s.entries.find(en => en.exerciseName === exerciseName);
-    if (e) return { date: s.date, sets: e.sets };
+    if (e) return { date: s.date, rounds: e.rounds };
   }
   return null;
 }
@@ -95,12 +135,18 @@ function getProgressForExercise(sessions, exerciseName) {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(s => {
       const e = s.entries.find(en => en.exerciseName === exerciseName);
-      const weights = e.sets.map(st => parseFloat(st.weight)).filter(w => !isNaN(w));
+      const weights = e.rounds.flatMap(r => r.sets).map(st => parseFloat(st.weight)).filter(w => !isNaN(w));
       const maxW = weights.length ? Math.max(...weights) : null;
       return maxW !== null ? { date: s.date, weight: maxW } : null;
     })
     .filter(Boolean);
 }
+
+function formatRoundsCompact(rounds) {
+  return rounds.map(r => r.sets.map(s => `${s.weight || 0}×${s.reps || 0}`).join(", ")).join(" / ");
+}
+
+function totalSetsOf(entry) { return entry.rounds.reduce((sum, r) => sum + r.sets.length, 0); }
 
 export default function WorkoutTracker() {
   const [tab, setTab] = useState("today");
@@ -115,20 +161,57 @@ export default function WorkoutTracker() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
   const [aiError, setAiError] = useState("");
+  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
+  const [justAddedId, setJustAddedId] = useState(null);
+  const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
+  const [cardioMinutes, setCardioMinutes] = useState("");
+  const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
+  const [restRemaining, setRestRemaining] = useState(0);
 
   const today = todayISO();
-  const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, entries: [] };
+  const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, startTime: "", endTime: "", cardio: [], entries: [] };
   const lastDoneMap = getLastDoneMap(sessions, true);
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
 
-  function persistToday(updatedEntries) {
+  function persistSession(patch) {
     const exists = sessions.some(s => s.date === today);
     const updatedSessions = exists
-      ? sessions.map(s => (s.date === today ? { ...s, entries: updatedEntries } : s))
-      : [...sessions, { ...todaySession, entries: updatedEntries }];
+      ? sessions.map(s => (s.date === today ? { ...s, ...patch } : s))
+      : [...sessions, { ...todaySession, ...patch }];
     setSessions(updatedSessions);
     saveSessions(updatedSessions);
+  }
+
+  // 휴식 타이머: 화면이 꺼지거나 백그라운드로 가도 실제 경과시간 기준으로 재계산
+  useEffect(() => {
+    if (!restTimer) return;
+    const tick = () => setRestRemaining(Math.max(0, Math.round((restTimer.endAt - Date.now()) / 1000)));
+    tick();
+    const iv = setInterval(tick, 500);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", tick); };
+  }, [restTimer]);
+
+  useEffect(() => {
+    if (restTimer && restRemaining === 0 && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  }, [restRemaining, restTimer]);
+
+  useEffect(() => {
+    if (!justAddedId) return;
+    const el = document.getElementById(`entry-${justAddedId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setJustAddedId(null);
+  }, [justAddedId]);
+
+  function startRest(entryId, exerciseName, seconds) {
+    setRestTimer({ entryId, exerciseName, endAt: Date.now() + seconds * 1000, duration: seconds });
+  }
+  function dismissRest() { setRestTimer(null); }
+  function adjustRest(delta) { setRestTimer(rt => (rt ? { ...rt, endAt: rt.endAt + delta * 1000 } : rt)); }
+
+  function toggleCollapse(id) {
+    setCollapsedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
 
   function selectGroup(gid) {
@@ -145,38 +228,76 @@ export default function WorkoutTracker() {
       groupId: selectedGroupId,
       subtagId: selectedSubtagId,
       exerciseName: exerciseInput.trim(),
-      sets: [{ weight: "", reps: "" }],
+      restSeconds: DEFAULT_REST,
+      rounds: [{ id: uid(), sets: [{ weight: "", reps: "" }] }],
     };
-    persistToday([...todaySession.entries, entry]);
+    persistSession({ entries: [...todaySession.entries, entry] });
     setExerciseInput("");
+    setJustAddedId(entry.id);
     showToast("추가됐어요 💪");
   }
 
   function removeEntry(entryId) {
-    persistToday(todaySession.entries.filter(e => e.id !== entryId));
+    persistSession({ entries: todaySession.entries.filter(e => e.id !== entryId) });
   }
 
   function addSet(entryId) {
-    persistToday(todaySession.entries.map(e => (e.id === entryId ? { ...e, sets: [...e.sets, { weight: "", reps: "" }] } : e)));
+    persistSession({
+      entries: todaySession.entries.map(e => {
+        if (e.id !== entryId) return e;
+        const rounds = e.rounds.length ? [...e.rounds] : [{ id: uid(), sets: [] }];
+        const lastIdx = rounds.length - 1;
+        rounds[lastIdx] = { ...rounds[lastIdx], sets: [...rounds[lastIdx].sets, { weight: "", reps: "" }] };
+        return { ...e, rounds };
+      }),
+    });
   }
 
-  function removeSet(entryId, setIdx) {
-    persistToday(todaySession.entries.map(e => (e.id === entryId ? { ...e, sets: e.sets.filter((_, i) => i !== setIdx) } : e)));
+  function addRound(entryId) {
+    const entry = todaySession.entries.find(e => e.id === entryId);
+    const seconds = entry?.restSeconds || DEFAULT_REST;
+    persistSession({
+      entries: todaySession.entries.map(e =>
+        e.id === entryId ? { ...e, rounds: [...e.rounds, { id: uid(), sets: [{ weight: "", reps: "" }] }] } : e
+      ),
+    });
+    startRest(entryId, entry?.exerciseName || "운동", seconds);
   }
 
-  function updateSet(entryId, setIdx, field, value) {
-    persistToday(
-      todaySession.entries.map(e =>
+  function removeSet(entryId, roundIdx, setIdx) {
+    persistSession({
+      entries: todaySession.entries.map(e =>
         e.id === entryId
-          ? { ...e, sets: e.sets.map((st, i) => (i === setIdx ? { ...st, [field]: value } : st)) }
+          ? { ...e, rounds: e.rounds.map((r, ri) => (ri === roundIdx ? { ...r, sets: r.sets.filter((_, si) => si !== setIdx) } : r)) }
           : e
-      )
-    );
+      ),
+    });
+  }
+
+  function updateSet(entryId, roundIdx, setIdx, field, value) {
+    persistSession({
+      entries: todaySession.entries.map(e =>
+        e.id === entryId
+          ? {
+              ...e,
+              rounds: e.rounds.map((r, ri) =>
+                ri === roundIdx ? { ...r, sets: r.sets.map((st, si) => (si === setIdx ? { ...st, [field]: value } : st)) } : r
+              ),
+            }
+          : e
+      ),
+    });
+  }
+
+  function updateRestSeconds(entryId, value) {
+    persistSession({
+      entries: todaySession.entries.map(e => (e.id === entryId ? { ...e, restSeconds: value === "" ? "" : Number(value) || 0 } : e)),
+    });
   }
 
   function resetToday() {
-    if (!window.confirm("오늘 기록을 전부 지울까요?")) return;
-    persistToday([]);
+    if (!window.confirm("오늘 운동 기록을 전부 지울까요? (시작/종료 시간, 유산소 기록은 유지됩니다)")) return;
+    persistSession({ entries: [] });
   }
 
   function deleteSession(sessionId) {
@@ -185,6 +306,14 @@ export default function WorkoutTracker() {
     setSessions(updated);
     saveSessions(updated);
   }
+
+  function addCardio() {
+    if (!cardioMinutes || Number(cardioMinutes) <= 0) { showToast("운동 시간을 입력해주세요"); return; }
+    persistSession({ cardio: [...todaySession.cardio, { id: uid(), type: cardioType, minutes: Number(cardioMinutes) }] });
+    setCardioMinutes("");
+    showToast("유산소 기록 추가됐어요 🏃");
+  }
+  function removeCardio(id) { persistSession({ cardio: todaySession.cardio.filter(c => c.id !== id) }); }
 
   async function getAiSuggestion() {
     setAiLoading(true);
@@ -223,12 +352,12 @@ ${summary}
   }
 
   const allExerciseNames = getAllExerciseNames(sessions);
-  const pastSessions = [...sessions].filter(s => s.entries.length > 0).sort((a, b) => b.date.localeCompare(a.date));
+  const pastSessions = [...sessions].filter(s => s.entries.length > 0 || (s.cardio && s.cardio.length > 0)).sort((a, b) => b.date.localeCompare(a.date));
   const selectedGroup = MUSCLE_GROUPS.find(g => g.id === selectedGroupId);
   const progressData = progressExercise ? getProgressForExercise(sessions, progressExercise) : [];
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", color: "#f0ede6" }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -264,6 +393,27 @@ ${summary}
 
       {tab === "today" && (
         <div style={{ padding: "16px 20px" }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+            <div style={{ flex: 1, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>시작 시간</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input type="time" className="text-input" value={todaySession.startTime} onChange={e => persistSession({ startTime: e.target.value })} />
+                <button className="ghost-btn" onClick={() => persistSession({ startTime: nowHHMM() })}>지금</button>
+              </div>
+            </div>
+            <div style={{ flex: 1, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>종료 시간</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input type="time" className="text-input" value={todaySession.endTime} onChange={e => persistSession({ endTime: e.target.value })} />
+                <button className="ghost-btn" onClick={() => persistSession({ endTime: nowHHMM() })}>지금</button>
+              </div>
+            </div>
+          </div>
+          {todaySession.startTime && todaySession.endTime && (
+            <div style={{ fontSize: "0.75rem", color: "#888", marginBottom: 20 }}>총 {formatDuration(todaySession.startTime, todaySession.endTime)}</div>
+          )}
+          {!(todaySession.startTime && todaySession.endTime) && <div style={{ marginBottom: 20 }} />}
+
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e", marginBottom: 10 }}>부위별 마지막 수행</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
             {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
@@ -300,56 +450,94 @@ ${summary}
               ))}
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
             <input className="text-input" placeholder="운동 이름 입력 (또는 위에서 선택)" value={exerciseInput} onChange={e => setExerciseInput(e.target.value)} />
             <button className="add-btn" onClick={addEntry}>추가</button>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e" }}>오늘 기록</div>
-            {todaySession.entries.length > 0 && <button className="ghost-btn" onClick={resetToday}>전체 초기화</button>}
+            {todaySession.entries.length > 0 && <button className="ghost-btn" onClick={resetToday}>운동 기록 초기화</button>}
           </div>
           {todaySession.entries.length === 0 && (
             <div style={{ color: "#555", fontSize: "0.85rem", padding: "20px 0", textAlign: "center" }}>아직 기록한 운동이 없어요.</div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
             {todaySession.entries.map(entry => {
               const group = MUSCLE_GROUPS.find(g => g.id === entry.groupId);
               const subtag = group?.subtags.find(st => st.id === entry.subtagId);
               const history = getExerciseHistory(sessions, entry.exerciseName, today);
+              const isCollapsed = collapsedIds.has(entry.id);
               return (
-                <div key={entry.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <div key={entry.id} id={`entry-${entry.id}`} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", cursor: "pointer" }} onClick={() => toggleCollapse(entry.id)}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{entry.exerciseName}</div>
-                      <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>{group?.emoji} {group?.name}{subtag ? ` · ${subtag.name}` : ""}</div>
-                    </div>
-                    <button className="ghost-btn" onClick={() => removeEntry(entry.id)}>삭제</button>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                    <div />
-                    <div style={{ fontSize: "0.62rem", color: "#555", textAlign: "center" }}>무게(kg)</div>
-                    <div style={{ fontSize: "0.62rem", color: "#555", textAlign: "center" }}>렙스</div>
-                    <div style={{ fontSize: "0.62rem", color: "#555", textAlign: "center" }}>지난번</div>
-                    <div />
-                  </div>
-                  {entry.sets.map((st, i) => {
-                    const prev = history?.sets?.[i];
-                    return (
-                      <div key={i} style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                        <div style={{ fontSize: "0.68rem", color: "#555", textAlign: "center" }}>S{i + 1}</div>
-                        <input className="log-input" type="number" inputMode="decimal" placeholder="—" value={st.weight} onChange={e => updateSet(entry.id, i, "weight", e.target.value)} />
-                        <input className="log-input" type="number" inputMode="numeric" placeholder="—" value={st.reps} onChange={e => updateSet(entry.id, i, "reps", e.target.value)} />
-                        <div style={{ fontSize: "0.68rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || "—"}×${prev.reps || "—"}` : "—"}</div>
-                        <button onClick={() => removeSet(entry.id, i)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.9rem" }}>×</button>
+                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{isCollapsed ? "▸" : "▾"} {entry.exerciseName}</div>
+                      <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
+                        {group?.emoji} {group?.name}{subtag ? ` · ${subtag.name}` : ""} · {entry.rounds.length}라운드 · {totalSetsOf(entry)}세트
                       </div>
-                    );
-                  })}
-                  <button className="ghost-btn" onClick={() => addSet(entry.id)} style={{ marginTop: 4 }}>+ 세트 추가</button>
+                    </div>
+                    <button className="ghost-btn" onClick={e => { e.stopPropagation(); removeEntry(entry.id); }}>삭제</button>
+                  </div>
+
+                  {!isCollapsed && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>무게(kg)</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>렙스</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>지난번</div><div />
+                      </div>
+                      {entry.rounds.map((round, ri) => (
+                        <div key={round.id} style={{ marginTop: ri > 0 ? 10 : 0, paddingTop: ri > 0 ? 8 : 0, borderTop: ri > 0 ? "1px dashed #2a2a2a" : "none" }}>
+                          {entry.rounds.length > 1 && <div style={{ fontSize: "0.68rem", color: "#c8a96e", marginBottom: 6 }}>라운드 {ri + 1}</div>}
+                          {round.sets.map((st, si) => {
+                            const prev = history?.rounds?.[ri]?.sets?.[si];
+                            return (
+                              <div key={si} style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                                <div style={{ fontSize: "0.66rem", color: "#555", textAlign: "center" }}>{si + 1}</div>
+                                <input className="log-input" type="number" inputMode="decimal" placeholder="—" value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
+                                <input className="log-input" type="number" inputMode="numeric" placeholder="—" value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
+                                <div style={{ fontSize: "0.66rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || "—"}×${prev.reps || "—"}` : "—"}</div>
+                                <button onClick={() => removeSet(entry.id, ri, si)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.9rem" }}>×</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+                        <button className="ghost-btn" onClick={() => addSet(entry.id)}>+ 세트 추가</button>
+                        <button className="add-btn" style={{ fontSize: "0.78rem", padding: "7px 12px" }} onClick={() => addRound(entry.id)}>🕐 휴식 시작 → 다음 라운드</button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: "0.68rem", color: "#666" }}>휴식</span>
+                          <input className="log-input" style={{ width: 48 }} type="number" value={entry.restSeconds} onChange={e => updateRestSeconds(entry.id, e.target.value)} />
+                          <span style={{ fontSize: "0.68rem", color: "#666" }}>초</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+
+          <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e", marginBottom: 10 }}>유산소</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {CARDIO_TYPES.map(t => (
+              <button key={t} className={`chip${cardioType === t ? " active" : ""}`} onClick={() => setCardioType(t)}>{t}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input className="text-input" style={{ maxWidth: 140 }} type="number" inputMode="numeric" placeholder="분" value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
+            <button className="add-btn" onClick={addCardio}>추가</button>
+          </div>
+          {todaySession.cardio.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {todaySession.cardio.map(c => (
+                <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+                  <div style={{ fontSize: "0.85rem" }}>🏃 {c.type} · {c.minutes}분</div>
+                  <button className="ghost-btn" onClick={() => removeCardio(c.id)}>삭제</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -359,14 +547,19 @@ ${summary}
           {pastSessions.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem" }}>아직 기록이 없어요.</div>}
           {pastSessions.map(s => {
             const groupsCovered = Array.from(new Set(s.entries.map(e => e.groupId))).map(gid => MUSCLE_GROUPS.find(g => g.id === gid));
-            const totalSets = s.entries.reduce((sum, e) => sum + e.sets.length, 0);
+            const totalSets = s.entries.reduce((sum, e) => sum + totalSetsOf(e), 0);
+            const cardioMin = (s.cardio || []).reduce((sum, c) => sum + Number(c.minutes || 0), 0);
             const isOpen = expandedHistoryId === s.id;
             return (
               <div key={s.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setExpandedHistoryId(isOpen ? null : s.id)}>
                   <div>
                     <div style={{ fontFamily: "'Bebas Neue'", fontSize: "0.95rem", letterSpacing: "1px", color: s.date === today ? "#c8a96e" : "#f0ede6" }}>{formatDateKR(s.date)}</div>
-                    <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>{groupsCovered.map(g => g?.emoji).join(" ")} · {totalSets}세트</div>
+                    <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
+                      {groupsCovered.map(g => g?.emoji).join(" ")} · {totalSets}세트
+                      {s.startTime && s.endTime && ` · ${s.startTime}–${s.endTime} (${formatDuration(s.startTime, s.endTime)})`}
+                      {cardioMin > 0 && ` · 유산소 ${cardioMin}분`}
+                    </div>
                   </div>
                   <button className="ghost-btn" onClick={e => { e.stopPropagation(); deleteSession(s.id); }}>삭제</button>
                 </div>
@@ -374,7 +567,12 @@ ${summary}
                   <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                     {s.entries.map(e => (
                       <div key={e.id} style={{ fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
-                        <strong>{e.exerciseName}</strong> — {e.sets.map(st => `${st.weight || "—"}kg×${st.reps || "—"}`).join(", ")}
+                        <strong>{e.exerciseName}</strong> — {formatRoundsCompact(e.rounds)}
+                      </div>
+                    ))}
+                    {(s.cardio || []).map(c => (
+                      <div key={c.id} style={{ fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
+                        🏃 {c.type} · {c.minutes}분
                       </div>
                     ))}
                   </div>
@@ -442,6 +640,22 @@ ${summary}
           {aiError && (
             <div style={{ marginTop: 16, background: "#1a0e0e", border: "1px solid #3a1e1e", borderRadius: 8, padding: 14, fontSize: "0.85rem", color: "#c86e6e" }}>{aiError}</div>
           )}
+        </div>
+      )}
+
+      {restTimer && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: restRemaining <= 0 ? "#c8a96e" : "#111", borderTop: "1px solid #2a2a2a", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 998 }}>
+          <div>
+            <div style={{ fontSize: "0.7rem", color: restRemaining <= 0 ? "#0a0a0a" : "#888" }}>{restTimer.exerciseName} 휴식</div>
+            <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", letterSpacing: "2px", color: restRemaining <= 0 ? "#0a0a0a" : "#c8a96e" }}>
+              {restRemaining <= 0 ? "휴식 끝! 🔔" : formatSecs(restRemaining)}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="ghost-btn" onClick={() => adjustRest(-15)}>-15초</button>
+            <button className="ghost-btn" onClick={() => adjustRest(15)}>+15초</button>
+            <button className="ghost-btn" onClick={dismissRest}>닫기</button>
+          </div>
         </div>
       )}
 
