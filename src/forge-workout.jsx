@@ -27,18 +27,26 @@ const MUSCLE_GROUPS = [
 ];
 
 const EXERCISE_PRESETS = {
-  chest_upper: ["인클라인 덤벨 프레스", "인클라인 머신 프레스", "인클라인 바벨 프레스", "로우-투-하이 케이블 플라이"],
-  chest_mid: ["플랫 바벨 프레스", "플랫 덤벨 프레스", "펙덱 플라이", "케이블 크로스오버"],
-  chest_lower: ["디클라인 프레스", "딥스", "하이-투-로우 케이블 플라이", "로우 케이블 프레스"],
-  back_lat: ["랫풀다운", "풀업", "스트레이트암 풀다운", "케이블 풀오버"],
-  back_row: ["바벨 로우", "시티드 케이블 로우", "원암 덤벨 로우", "T바 로우"],
-  legs_quad: ["스쿼트", "레그프레스", "레그 익스텐션", "핵스쿼트"],
-  legs_ham: ["루마니안 데드리프트", "레그컬", "힙쓰러스트", "굿모닝"],
-  shoulders_all: ["밀리터리 프레스", "사이드 레터럴 레이즈", "페이스풀", "리어델트 플라이", "프론트 레이즈"],
-  arms_biceps: ["바벨 컬", "덤벨 컬", "인클라인 덤벨 컬", "해머 컬"],
-  arms_triceps: ["케이블 푸시다운", "오버헤드 익스텐션", "딥스", "클로즈그립 벤치프레스"],
-  free_any: [],
+  // 순서: 머신/케이블/덤벨 먼저, 바벨(랙) 운동은 뒤쪽. 기존 이름은 그대로 유지(과거 기록 연결 보존)
+  chest_upper: ["인클라인 머신 프레스", "인클라인 덤벨 프레스", "로우-투-하이 케이블 플라이", "인클라인 덤벨 플라이", "스미스머신 인클라인 프레스", "인클라인 바벨 프레스"],
+  chest_mid: ["체스트 프레스 머신", "플랫 덤벨 프레스", "펙덱 플라이", "케이블 크로스오버", "덤벨 플라이", "스미스머신 벤치프레스", "푸쉬업", "플랫 바벨 프레스"],
+  chest_lower: ["디클라인 머신 프레스", "하이-투-로우 케이블 플라이", "로우 케이블 프레스", "디클라인 덤벨 프레스", "어시스티드 딥 머신", "딥스", "디클라인 프레스"],
+  back_lat: ["랫풀다운", "랫풀다운 (V바/클로즈그립)", "원암 케이블 랫풀다운", "다이버징 랫풀다운 머신", "머신 풀오버", "케이블 풀오버", "스트레이트암 풀다운", "어시스티드 풀업 머신", "풀업", "친업"],
+  back_row: ["시티드 케이블 로우", "시티드 로우 머신", "하이 로우 머신", "체스트 서포트 로우 머신", "원암 케이블 로우", "원암 덤벨 로우", "인클라인 덤벨 로우", "T바 로우", "바벨 로우"],
+  legs_quad: ["레그프레스", "레그 익스텐션", "핵스쿼트 머신", "스미스머신 스쿼트", "고블릿 스쿼트", "덤벨 런지", "불가리안 스플릿 스쿼트", "핵스쿼트", "스쿼트"],
+  legs_ham: ["레그컬", "라잉 레그컬", "시티드 레그컬", "덤벨 루마니안 데드리프트", "힙 어브덕션 머신", "힙 어덕션 머신", "백 익스텐션", "힙쓰러스트", "루마니안 데드리프트", "굿모닝"],
+  shoulders_all: ["숄더 프레스 머신", "덤벨 숄더 프레스", "사이드 레터럴 레이즈", "케이블 레터럴 레이즈", "머신 레터럴 레이즈", "리어델트 머신(리버스 펙덱)", "리어델트 플라이", "페이스풀", "프론트 레이즈", "케이블 업라이트 로우", "덤벨 슈러그", "밀리터리 프레스"],
+  arms_biceps: ["덤벨 컬", "인클라인 덤벨 컬", "해머 컬", "케이블 컬", "케이블 로프 해머 컬", "프리처 컬 머신", "컨센트레이션 컬", "바벨 컬"],
+  arms_triceps: ["케이블 푸시다운", "케이블 푸시다운 (로프)", "원암 케이블 푸시다운", "오버헤드 익스텐션", "덤벨 오버헤드 익스텐션", "트라이셉스 딥 머신", "덤벨 킥백", "딥스", "클로즈그립 벤치프레스"],
+  free_any: ["케이블 크런치", "앱 크런치 머신", "행잉 레그레이즈", "카프 레이즈 머신", "힙 어브덕션 머신", "힙 어덕션 머신", "덤벨 슈러그"],
 };
+
+const CUSTOM_EX_KEY = "forge_custom_exercises_v1";
+const PRESET_VISIBLE = 8;
+function loadCustomExercises() {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_EX_KEY)) || {}; } catch { return {}; }
+}
+function saveCustomExercises(m) { try { localStorage.setItem(CUSTOM_EX_KEY, JSON.stringify(m)); } catch {} }
 
 const CARDIO_TYPES = ["러닝머신", "사이클", "일립티컬", "로잉머신", "스텝퍼", "기타"];
 
@@ -165,6 +173,8 @@ export default function WorkoutTracker() {
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
+  const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
+  const [showAllPresets, setShowAllPresets] = useState(false);
   const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
   const [restRemaining, setRestRemaining] = useState(0);
   const audioCtxRef = useRef(null);
@@ -232,6 +242,13 @@ export default function WorkoutTracker() {
   }, [restRemaining, restTimer]);
 
   useEffect(() => {
+    // 아이폰 화면 맞춤: 확대 방지 + 노치/홈바 영역까지 채우기 (index.html 수정 없이 여기서 처리)
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) { meta = document.createElement("meta"); meta.name = "viewport"; document.head.appendChild(meta); }
+    meta.content = "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover";
+  }, []);
+
+  useEffect(() => {
     if (!justAddedId) return;
     const el = document.getElementById(`entry-${justAddedId}`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -253,6 +270,24 @@ export default function WorkoutTracker() {
     const g = MUSCLE_GROUPS.find(gr => gr.id === gid);
     setSelectedSubtagId(g.subtags[0].id);
     setExerciseInput("");
+    setShowAllPresets(false);
+  }
+
+  function saveCustomExercise() {
+    const name = exerciseInput.trim();
+    if (!name) { showToast("저장할 운동 이름을 입력해주세요"); return; }
+    const existing = customExercises[selectedSubtagId] || [];
+    if (existing.includes(name) || (EXERCISE_PRESETS[selectedSubtagId] || []).includes(name)) { showToast("이미 목록에 있어요"); return; }
+    const next = { ...customExercises, [selectedSubtagId]: [...existing, name] };
+    setCustomExercises(next);
+    saveCustomExercises(next);
+    showToast("내 운동 목록에 저장했어요 ★");
+  }
+
+  function removeCustomExercise(name) {
+    const next = { ...customExercises, [selectedSubtagId]: (customExercises[selectedSubtagId] || []).filter(n => n !== name) };
+    setCustomExercises(next);
+    saveCustomExercises(next);
   }
 
   function addEntry() {
@@ -392,18 +427,19 @@ ${summary}
   const progressData = progressExercise ? getProgressForExercise(sessions, progressExercise) : [];
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { width: 100%; max-width: 100%; overflow-x: hidden; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; }
         input, textarea { font-family: inherit; }
         .tab-btn { background: none; border: none; color: #888; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; padding: 10px 12px; border-bottom: 2px solid transparent; white-space: nowrap; }
         .tab-btn.active { color: #c8a96e; border-bottom: 2px solid #c8a96e; }
         .chip { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.78rem; cursor: pointer; padding: 6px 12px; border-radius: 999px; transition: all 0.15s; }
         .chip.active { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; font-weight: 700; }
-        .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 4px; padding: 6px 8px; width: 100%; text-align: center; font-size: 0.88rem; }
+        .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 4px; padding: 6px 8px; width: 100%; min-width: 0; text-align: center; font-size: 16px; }
         .log-input:focus { outline: none; border-color: #c8a96e; }
-        .text-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 8px; padding: 10px 14px; width: 100%; font-size: 0.88rem; }
+        .text-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 8px; padding: 10px 14px; width: 100%; min-width: 0; font-size: 16px; }
         .text-input:focus { outline: none; border-color: #c8a96e; }
         .text-input::placeholder { color: #444; }
         .add-btn { background: #c8a96e; color: #0a0a0a; border: none; font-family: 'Bebas Neue'; font-size: 0.95rem; letter-spacing: 1px; padding: 10px 18px; border-radius: 6px; cursor: pointer; }
@@ -429,14 +465,14 @@ ${summary}
       {tab === "today" && (
         <div style={{ padding: "16px 20px" }}>
           <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
-            <div style={{ flex: 1, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+            <div style={{ flex: 1, minWidth: 0, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
               <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>시작 시간</div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input type="time" className="text-input" value={todaySession.startTime} onChange={e => persistSession({ startTime: e.target.value })} />
                 <button className="ghost-btn" onClick={() => persistSession({ startTime: nowHHMM() })}>지금</button>
               </div>
             </div>
-            <div style={{ flex: 1, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+            <div style={{ flex: 1, minWidth: 0, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
               <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>종료 시간</div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input type="time" className="text-input" value={todaySession.endTime} onChange={e => persistSession({ endTime: e.target.value })} />
@@ -474,20 +510,38 @@ ${summary}
           {selectedGroup.id !== "free" && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
               {selectedGroup.subtags.map(st => (
-                <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); }}>{st.name}</button>
+                <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{st.name}</button>
               ))}
             </div>
           )}
-          {(EXERCISE_PRESETS[selectedSubtagId] || []).length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-              {EXERCISE_PRESETS[selectedSubtagId].map(name => (
-                <button key={name} className="ghost-btn" onClick={() => setExerciseInput(name)}>{name}</button>
-              ))}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-            <input className="text-input" placeholder="운동 이름 입력 (또는 위에서 선택)" value={exerciseInput} onChange={e => setExerciseInput(e.target.value)} />
-            <button className="add-btn" onClick={addEntry}>추가</button>
+          {(() => {
+            const custom = customExercises[selectedSubtagId] || [];
+            const presets = (EXERCISE_PRESETS[selectedSubtagId] || []).filter(n => !custom.includes(n));
+            const list = [...custom.map(n => ({ n, custom: true })), ...presets.map(n => ({ n, custom: false }))];
+            if (list.length === 0) return null;
+            const visible = showAllPresets ? list : list.slice(0, PRESET_VISIBLE);
+            return (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {visible.map(({ n, custom: isCustom }) => (
+                  <span key={n} style={{ display: "inline-flex", alignItems: "center", maxWidth: "100%" }}>
+                    <button className="ghost-btn" style={isCustom ? { borderColor: "#c8a96e", color: "#c8a96e", borderTopRightRadius: 0, borderBottomRightRadius: 0 } : undefined} onClick={() => setExerciseInput(n)}>{isCustom ? "★ " : ""}{n}</button>
+                    {isCustom && (
+                      <button className="ghost-btn" style={{ borderColor: "#c8a96e", color: "#c8a96e", borderLeft: "none", borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} onClick={() => { if (window.confirm(`"${n}" 을(를) 내 목록에서 지울까요? (과거 기록은 그대로예요)`)) removeCustomExercise(n); }}>×</button>
+                    )}
+                  </span>
+                ))}
+                {list.length > PRESET_VISIBLE && (
+                  <button className="ghost-btn" onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? "접기 ▴" : `더보기 (${list.length - PRESET_VISIBLE}) ▾`}</button>
+                )}
+              </div>
+            );
+          })()}
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <input className="text-input" style={{ minWidth: 0 }} placeholder="운동 이름 입력 (또는 위에서 선택)" value={exerciseInput} onChange={e => setExerciseInput(e.target.value)} />
+            <button className="add-btn" style={{ flexShrink: 0 }} onClick={addEntry}>추가</button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
+            <button className="ghost-btn" onClick={saveCustomExercise}>★ 이 이름을 내 목록에 저장</button>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -517,7 +571,7 @@ ${summary}
 
                   {!isCollapsed && (
                     <div style={{ marginTop: 10 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
                         <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>무게(kg)</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>렙스</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>지난번</div><div />
                       </div>
                       {entry.rounds.map((round, ri) => (
@@ -526,7 +580,7 @@ ${summary}
                           {round.sets.map((st, si) => {
                             const prev = history?.rounds?.[ri]?.sets?.[si];
                             return (
-                              <div key={si} style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                              <div key={si} style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                 <div style={{ fontSize: "0.66rem", color: "#555", textAlign: "center" }}>{si + 1}</div>
                                 <input className="log-input" type="number" inputMode="decimal" placeholder="—" value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
                                 <input className="log-input" type="number" inputMode="numeric" placeholder="—" value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
@@ -679,7 +733,7 @@ ${summary}
       )}
 
       {restTimer && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: restRemaining <= 0 ? "#c8a96e" : "#111", borderTop: "1px solid #2a2a2a", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 998 }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: restRemaining <= 0 ? "#c8a96e" : "#111", borderTop: "1px solid #2a2a2a", padding: "12px 20px calc(12px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 998 }}>
           <div>
             <div style={{ fontSize: "0.7rem", color: restRemaining <= 0 ? "#0a0a0a" : "#888" }}>{restTimer.exerciseName} 휴식</div>
             <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", letterSpacing: "2px", color: restRemaining <= 0 ? "#0a0a0a" : "#c8a96e" }}>
