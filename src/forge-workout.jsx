@@ -32,11 +32,11 @@ const EXERCISE_PRESETS = {
   chest_mid: ["체스트 프레스 머신", "플랫 덤벨 프레스", "펙덱 플라이", "케이블 크로스오버", "덤벨 플라이", "스미스머신 벤치프레스", "푸쉬업", "플랫 바벨 프레스"],
   chest_lower: ["디클라인 머신 프레스", "하이-투-로우 케이블 플라이", "로우 케이블 프레스", "디클라인 덤벨 프레스", "어시스티드 딥 머신", "딥스", "디클라인 프레스"],
   back_lat: ["랫풀다운", "랫풀다운 (V바/클로즈그립)", "원암 케이블 랫풀다운", "다이버징 랫풀다운 머신", "머신 풀오버", "케이블 풀오버", "스트레이트암 풀다운", "어시스티드 풀업 머신", "풀업", "친업"],
-  back_row: ["시티드 케이블 로우", "시티드 로우 머신", "하이 로우 머신", "체스트 서포트 로우 머신", "원암 케이블 로우", "원암 덤벨 로우", "인클라인 덤벨 로우", "T바 로우", "바벨 로우"],
-  legs_quad: ["레그프레스", "레그 익스텐션", "핵스쿼트 머신", "스미스머신 스쿼트", "고블릿 스쿼트", "덤벨 런지", "불가리안 스플릿 스쿼트", "핵스쿼트", "스쿼트"],
-  legs_ham: ["레그컬", "라잉 레그컬", "시티드 레그컬", "덤벨 루마니안 데드리프트", "힙 어브덕션 머신", "힙 어덕션 머신", "백 익스텐션", "힙쓰러스트", "루마니안 데드리프트", "굿모닝"],
-  shoulders_all: ["숄더 프레스 머신", "덤벨 숄더 프레스", "사이드 레터럴 레이즈", "케이블 레터럴 레이즈", "머신 레터럴 레이즈", "리어델트 머신(리버스 펙덱)", "리어델트 플라이", "페이스풀", "프론트 레이즈", "케이블 업라이트 로우", "덤벨 슈러그", "밀리터리 프레스"],
-  arms_biceps: ["덤벨 컬", "인클라인 덤벨 컬", "해머 컬", "케이블 컬", "케이블 로프 해머 컬", "프리처 컬 머신", "컨센트레이션 컬", "바벨 컬"],
+  back_row: ["시티드 케이블 로우", "시티드 로우 머신", "하이 로우 머신", "체스트 서포트 로우 머신", "원암 케이블 로우", "원암 덤벨 로우", "인클라인 덤벨 로우", "T바 로우", "바벨 로우", "펜들레이 로우", "랙 풀"],
+  legs_quad: ["레그프레스", "레그 익스텐션", "핵스쿼트 머신", "스미스머신 스쿼트", "고블릿 스쿼트", "덤벨 런지", "불가리안 스플릿 스쿼트", "핵스쿼트", "스쿼트", "프론트 스쿼트", "바벨 런지"],
+  legs_ham: ["레그컬", "라잉 레그컬", "시티드 레그컬", "덤벨 루마니안 데드리프트", "힙 어브덕션 머신", "힙 어덕션 머신", "백 익스텐션", "힙쓰러스트", "루마니안 데드리프트", "굿모닝", "데드리프트"],
+  shoulders_all: ["숄더 프레스 머신", "덤벨 숄더 프레스", "사이드 레터럴 레이즈", "케이블 레터럴 레이즈", "머신 레터럴 레이즈", "리어델트 머신(리버스 펙덱)", "리어델트 플라이", "페이스풀", "프론트 레이즈", "케이블 업라이트 로우", "덤벨 슈러그", "밀리터리 프레스", "바벨 슈러그", "바벨 업라이트 로우"],
+  arms_biceps: ["덤벨 컬", "인클라인 덤벨 컬", "해머 컬", "케이블 컬", "케이블 로프 해머 컬", "프리처 컬 머신", "컨센트레이션 컬", "바벨 컬", "EZ바 컬"],
   arms_triceps: ["케이블 푸시다운", "케이블 푸시다운 (로프)", "원암 케이블 푸시다운", "오버헤드 익스텐션", "덤벨 오버헤드 익스텐션", "트라이셉스 딥 머신", "덤벨 킥백", "딥스", "클로즈그립 벤치프레스"],
   free_any: ["케이블 크런치", "앱 크런치 머신", "행잉 레그레이즈", "카프 레이즈 머신", "힙 어브덕션 머신", "힙 어덕션 머신", "덤벨 슈러그"],
 };
@@ -134,9 +134,63 @@ const EX_EN = {
   "앱 크런치 머신": "Ab Crunch Machine",
   "행잉 레그레이즈": "Hanging Leg Raise",
   "카프 레이즈 머신": "Calf Raise Machine",
+  "펜들레이 로우": "Pendlay Row",
+  "랙 풀": "Rack Pull",
+  "프론트 스쿼트": "Front Squat",
+  "바벨 런지": "Barbell Lunge",
+  "데드리프트": "Deadlift",
+  "바벨 슈러그": "Barbell Shrug",
+  "바벨 업라이트 로우": "Barbell Upright Row",
+  "EZ바 컬": "EZ-Bar Curl",
 };
+
+// 별칭(검색/입력용): 벤치프레스처럼 흔히 부르는 이름 → 기존 운동 이름으로 연결 (새 이름을 만들지 않아 기록이 갈라지지 않음)
+const EX_ALIASES = {
+  "인클라인 벤치프레스": "인클라인 바벨 프레스", "인클라인 벤치": "인클라인 바벨 프레스",
+  "incline bench press": "인클라인 바벨 프레스", "incline bench": "인클라인 바벨 프레스",
+  "플랫 벤치프레스": "플랫 바벨 프레스", "플랫 벤치": "플랫 바벨 프레스", "벤치프레스": "플랫 바벨 프레스",
+  "bench press": "플랫 바벨 프레스", "flat bench press": "플랫 바벨 프레스", "barbell bench press": "플랫 바벨 프레스",
+  "디클라인 벤치프레스": "디클라인 프레스", "decline bench press": "디클라인 프레스",
+};
+const ALIASES_BY_KO = {};
+Object.entries(EX_ALIASES).forEach(([alias, ko]) => { (ALIASES_BY_KO[ko] = ALIASES_BY_KO[ko] || []).push(alias); });
+
+// 바벨/랙 운동: 기본 목록에는 숨기고 '더보기'에서만 보임 (벤치프레스류는 자주 하니까 기본 표시)
+const RACK_EXERCISES = new Set(["스쿼트", "프론트 스쿼트", "바벨 런지", "루마니안 데드리프트", "데드리프트", "굿모닝", "바벨 로우", "랙 풀", "펜들레이 로우", "밀리터리 프레스", "바벨 슈러그", "바벨 업라이트 로우", "바벨 컬", "EZ바 컬"]);
 const EN_TO_KO = Object.fromEntries(Object.entries(EX_EN).map(([ko, en]) => [en.toLowerCase(), ko]));
-function canonicalName(name) { return EN_TO_KO[name.trim().toLowerCase()] || name.trim(); }
+function canonicalName(name) { const k = name.trim().toLowerCase(); return EN_TO_KO[k] || EX_ALIASES[k] || name.trim(); }
+
+// 검색용 목록: 프리셋 + 내 목록 + 과거 기록에 나온 운동 (운동 이름 + 소속 세부부위)
+function buildSearchIndex(customExercises, sessions) {
+  const seen = new Set();
+  const out = [];
+  const push = (name, subtagId) => {
+    if (!name) return;
+    const key = name + "|" + subtagId;
+    if (seen.has(key)) return;
+    const g = MUSCLE_GROUPS.find(gr => gr.subtags.some(st => st.id === subtagId));
+    if (!g) return;
+    seen.add(key);
+    out.push({ name, subtagId, groupId: g.id });
+  };
+  Object.entries(customExercises).forEach(([sid, list]) => (list || []).forEach(n => push(n, sid)));
+  MUSCLE_GROUPS.forEach(g => g.subtags.forEach(st => (EXERCISE_PRESETS[st.id] || []).forEach(n => push(n, st.id))));
+  sessions.forEach(s => s.entries.forEach(e => push(e.exerciseName, e.subtagId)));
+  return out;
+}
+
+function searchExercises(index, query, limit) {
+  const q = query.toLowerCase().replace(/\s/g, "");
+  if (!q) return [];
+  const results = [];
+  index.forEach((item, order) => {
+    const hays = [item.name, EX_EN[item.name] || "", ...(ALIASES_BY_KO[item.name] || [])].map(h => h.toLowerCase().replace(/\s/g, ""));
+    if (hays.some(h => h.startsWith(q))) results.push({ item, rank: 0, order });
+    else if (hays.some(h => h.includes(q))) results.push({ item, rank: 1, order });
+  });
+  results.sort((a, b) => a.rank - b.rank || a.order - b.order);
+  return results.slice(0, limit).map(r => r.item);
+}
 
 const CARDIO_TYPES = ["러닝머신", "사이클", "일립티컬", "로잉머신", "스텝퍼", "기타"];
 const CARDIO_EN = { "러닝머신": "Treadmill", "사이클": "Cycle", "일립티컬": "Elliptical", "로잉머신": "Rowing Machine", "스텝퍼": "Stepper", "기타": "Other" };
@@ -162,7 +216,7 @@ function normalizeSessions(raw) {
     date: s.date,
     startTime: s.startTime || "",
     endTime: s.endTime || "",
-    cardio: s.cardio || [],
+    cardio: (s.cardio || []).map(c => ({ ...c, id: c.id || uid() })), // 기존 필드 유지 + 선택 필드(incline, calories)
     entries: (s.entries || []).map(e => ({
       id: e.id || uid(),
       groupId: e.groupId,
@@ -289,6 +343,9 @@ export default function WorkoutTracker() {
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
+  const [cardioIncline, setCardioIncline] = useState("");
+  const [cardioCalories, setCardioCalories] = useState("");
+  const [showSuggest, setShowSuggest] = useState(false);
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
   const [showAllPresets, setShowAllPresets] = useState(false);
   const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
@@ -302,6 +359,19 @@ export default function WorkoutTracker() {
   const stName = st => (lang === "en" ? st.en : st.name);
   const exName = name => (lang === "en" ? EX_EN[name] || name : name);
   const cardioName = type => (lang === "en" ? CARDIO_EN[type] || type : type);
+  const cardioLabel = c => {
+    const parts = [cardioName(c.type), `${c.minutes} ${lang === "en" ? "min" : "분"}`];
+    if (c.incline !== undefined && c.incline !== "" && c.incline !== null) parts.push(`${t("경사", "Incline")} ${c.incline}`);
+    if (c.calories) parts.push(`${c.calories} kcal`);
+    return parts.join(" · ");
+  };
+  function pickSuggestion(item) {
+    setSelectedGroupId(item.groupId);
+    setSelectedSubtagId(item.subtagId);
+    setExerciseInput(exName(item.name));
+    setShowAllPresets(false);
+    setShowSuggest(false);
+  }
 
   function changeLang(next) {
     setLang(next);
@@ -436,6 +506,7 @@ export default function WorkoutTracker() {
     };
     persistSession({ entries: [...todaySession.entries, entry] });
     setExerciseInput("");
+    setShowSuggest(false);
     setJustAddedId(entry.id);
     showToast(t("추가됐어요 💪", "Added 💪"));
   }
@@ -513,8 +584,13 @@ export default function WorkoutTracker() {
 
   function addCardio() {
     if (!cardioMinutes || Number(cardioMinutes) <= 0) { showToast(t("운동 시간을 입력해주세요", "Enter the duration")); return; }
-    persistSession({ cardio: [...todaySession.cardio, { id: uid(), type: cardioType, minutes: Number(cardioMinutes) }] });
+    const item = { id: uid(), type: cardioType, minutes: Number(cardioMinutes) };
+    if (cardioType === "러닝머신" && cardioIncline !== "" && !isNaN(Number(cardioIncline))) item.incline = Number(cardioIncline);
+    if (cardioCalories !== "" && Number(cardioCalories) > 0) item.calories = Number(cardioCalories);
+    persistSession({ cardio: [...todaySession.cardio, item] });
     setCardioMinutes("");
+    setCardioIncline("");
+    setCardioCalories("");
     showToast(t("유산소 기록 추가됐어요 🏃", "Cardio added 🏃"));
   }
   function removeCardio(id) { persistSession({ cardio: todaySession.cardio.filter(c => c.id !== id) }); }
@@ -720,9 +796,15 @@ ${summary}
           {(() => {
             const custom = customExercises[selectedSubtagId] || [];
             const presets = (EXERCISE_PRESETS[selectedSubtagId] || []).filter(n => !custom.includes(n));
-            const list = [...custom.map(n => ({ n, custom: true })), ...presets.map(n => ({ n, custom: false }))];
+            const list = [
+              ...custom.map(n => ({ n, custom: true })),
+              ...presets.filter(n => !RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
+              ...presets.filter(n => RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
+            ];
             if (list.length === 0) return null;
-            const visible = showAllPresets ? list : list.slice(0, PRESET_VISIBLE);
+            const baseList = list.filter(x => x.custom || !RACK_EXERCISES.has(x.n));
+            const visible = showAllPresets ? list : baseList.slice(0, PRESET_VISIBLE);
+            const hiddenCount = list.length - visible.length;
             return (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 {visible.map(({ n, custom: isCustom }) => (
@@ -733,16 +815,37 @@ ${summary}
                     )}
                   </span>
                 ))}
-                {list.length > PRESET_VISIBLE && (
-                  <button className="ghost-btn" onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? t("접기 ▴", "Show less ▴") : t(`더보기 (${list.length - PRESET_VISIBLE}) ▾`, `Show more (${list.length - PRESET_VISIBLE}) ▾`)}</button>
-                )}
+                {hiddenCount > 0 || showAllPresets ? (
+                  <button className="ghost-btn" onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? t("접기 ▴", "Show less ▴") : t(`더보기 (${hiddenCount}) ▾`, `Show more (${hiddenCount}) ▾`)}</button>
+                ) : null}
               </div>
             );
           })()}
           <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <input className="text-input" placeholder={t("운동 이름 입력 (또는 위에서 선택)", "Exercise name (or pick above)")} value={exerciseInput} onChange={e => setExerciseInput(e.target.value)} />
+            <input className="text-input" placeholder={t("운동 이름 검색/입력 (또는 위에서 선택)", "Search or type exercise (or pick above)")} value={exerciseInput}
+              onChange={e => { setExerciseInput(e.target.value); setShowSuggest(true); }}
+              onBlur={() => setTimeout(() => setShowSuggest(false), 150)} />
             <button className="add-btn" style={{ flexShrink: 0 }} onClick={addEntry}>{t("추가", "ADD")}</button>
           </div>
+          {showSuggest && (() => {
+            const found = searchExercises(buildSearchIndex(customExercises, sessions), exerciseInput, 6);
+            if (found.length === 0) return null;
+            return (
+              <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, marginBottom: 8, overflow: "hidden" }}>
+                {found.map((item, i) => {
+                  const g = MUSCLE_GROUPS.find(gr => gr.id === item.groupId);
+                  const st = g && g.subtags.find(x => x.id === item.subtagId);
+                  return (
+                    <div key={item.name + item.subtagId} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(item)}
+                      style={{ padding: "10px 14px", cursor: "pointer", borderTop: i > 0 ? "1px solid #1e1e1e" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: "0.85rem", minWidth: 0 }}>{exName(item.name)}</span>
+                      <span style={{ fontSize: "0.65rem", color: "#666", flexShrink: 0 }}>{g ? gName(g) : ""}{st && g.id !== "free" ? ` · ${stName(st)}` : ""}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
             <button className="ghost-btn" onClick={saveCustomExercise}>{t("★ 이 이름을 내 목록에 저장", "★ Save to My Exercises")}</button>
           </div>
@@ -816,15 +919,19 @@ ${summary}
               <button key={ct} className={`chip${cardioType === ct ? " active" : ""}`} onClick={() => setCardioType(ct)}>{cardioName(ct)}</button>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input className="text-input" style={{ maxWidth: 140 }} type="number" inputMode="numeric" placeholder={t("분", "min")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
+          <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" ? "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto" : "minmax(0,1fr) minmax(0,1fr) auto", gap: 8, marginBottom: 12 }}>
+            <input className="text-input" type="number" inputMode="numeric" placeholder={t("분", "min")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
+            {cardioType === "러닝머신" && (
+              <input className="text-input" type="number" inputMode="decimal" placeholder={t("경사", "Incline")} value={cardioIncline} onChange={e => setCardioIncline(e.target.value)} />
+            )}
+            <input className="text-input" type="number" inputMode="numeric" placeholder="kcal" value={cardioCalories} onChange={e => setCardioCalories(e.target.value)} />
             <button className="add-btn" style={{ flexShrink: 0 }} onClick={addCardio}>{t("추가", "ADD")}</button>
           </div>
           {todaySession.cardio.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {todaySession.cardio.map(c => (
                 <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: "0.85rem" }}>🏃 {cardioName(c.type)} · {c.minutes} {minWord}</div>
+                  <div style={{ fontSize: "0.85rem" }}>🏃 {cardioLabel(c)}</div>
                   <button className="ghost-btn" onClick={() => removeCardio(c.id)}>{t("삭제", "Delete")}</button>
                 </div>
               ))}
@@ -841,6 +948,7 @@ ${summary}
             const groupsCovered = Array.from(new Set(s.entries.map(e => e.groupId))).map(gid => MUSCLE_GROUPS.find(g => g.id === gid));
             const totalSets = s.entries.reduce((sum, e) => sum + totalSetsOf(e), 0);
             const cardioMin = (s.cardio || []).reduce((sum, c) => sum + Number(c.minutes || 0), 0);
+            const cardioKcal = (s.cardio || []).reduce((sum, c) => sum + Number(c.calories || 0), 0);
             const isOpen = expandedHistoryId === s.id;
             return (
               <div key={s.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
@@ -850,7 +958,7 @@ ${summary}
                     <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
                       {groupsCovered.map(g => g?.emoji).join(" ")} · {totalSets} {setsWord}
                       {s.startTime && s.endTime && ` · ${s.startTime}–${s.endTime} (${formatDuration(s.startTime, s.endTime, lang)})`}
-                      {cardioMin > 0 && ` · ${t("유산소", "Cardio")} ${cardioMin} ${minWord}`}
+                      {cardioMin > 0 && ` · ${t("유산소", "Cardio")} ${cardioMin} ${minWord}${cardioKcal > 0 ? ` (${cardioKcal} kcal)` : ""}`}
                     </div>
                   </div>
                   <button className="ghost-btn" style={{ flexShrink: 0 }} onClick={e => { e.stopPropagation(); deleteSession(s.id); }}>{t("삭제", "Delete")}</button>
@@ -864,7 +972,7 @@ ${summary}
                     ))}
                     {(s.cardio || []).map(c => (
                       <div key={c.id} style={{ fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
-                        🏃 {cardioName(c.type)} · {c.minutes} {minWord}
+                        🏃 {cardioLabel(c)}
                       </div>
                     ))}
                   </div>
