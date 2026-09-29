@@ -459,8 +459,8 @@ export default function WorkoutTracker() {
 
   // 시작 스플래시: 잠깐 보여주고 페이드아웃 후 본 화면으로
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashPhase("fading"), 1300);
-    const t2 = setTimeout(() => setSplashPhase("hidden"), 1300 + 500);
+    const t1 = setTimeout(() => setSplashPhase("fading"), 1900);
+    const t2 = setTimeout(() => setSplashPhase("hidden"), 1900 + 550);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
@@ -725,13 +725,21 @@ ${summary}
           opacity: splashPhase === "fading" ? 0 : 1, transition: "opacity 0.5s ease",
           pointerEvents: splashPhase === "fading" ? "none" : "auto",
         }}>
-          <img src={SPLASH_IMG} alt="FORGE" style={{ width: "56%", maxWidth: 260, filter: "drop-shadow(0 0 24px rgba(200,169,110,0.35))" }} />
-          <div style={{ fontFamily: "'Bebas Neue'", fontSize: "2.1rem", letterSpacing: "8px", color: "#c8a96e" }}>FORGE</div>
+          <img src={SPLASH_IMG} alt="FORGE" className="splash-in" style={{ width: "56%", maxWidth: 260, filter: "drop-shadow(0 0 24px rgba(200,169,110,0.35))", animationDelay: "0s" }} />
+          <div style={{ textAlign: "center" }}>
+            <div className="splash-in" style={{ fontFamily: "'Bebas Neue'", fontSize: "2.2rem", letterSpacing: "9px", color: "#c8a96e", animationDelay: "0.35s" }}>FORGE</div>
+            <div className="splash-in" style={{ width: 46, height: 1, background: "#4a3d28", margin: "8px auto", animationDelay: "0.6s" }} />
+            <div className="splash-in" style={{ fontSize: "0.68rem", letterSpacing: "3px", color: "#8a7a5c", textTransform: "uppercase", animationDelay: "0.75s" }}>
+              {t("AI가 매일 벼려내는 나의 운동", "Forged Daily By AI")}
+            </div>
+          </div>
         </div>
       )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;700&display=swap');
+        @keyframes splashIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        .splash-in { opacity: 0; animation: splashIn 0.7s ease forwards; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { width: 100%; max-width: 100%; overflow-x: hidden; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; }
         input, textarea { font-family: inherit; }
