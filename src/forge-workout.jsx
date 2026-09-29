@@ -720,12 +720,19 @@ ${summary}
     <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
       {splashPhase !== "hidden" && (
         <div style={{
-          position: "fixed", inset: 0, zIndex: 9999, background: "#0a0a0a",
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "radial-gradient(circle at 50% 42%, rgba(200,169,110,0.09), rgba(10,10,10,0) 50%), #0a0a0a",
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 22,
           opacity: splashPhase === "fading" ? 0 : 1, transition: "opacity 0.5s ease",
           pointerEvents: splashPhase === "fading" ? "none" : "auto",
         }}>
-          <img src={SPLASH_IMG} alt="FORGE" className="splash-in" style={{ width: "56%", maxWidth: 260, filter: "drop-shadow(0 0 24px rgba(200,169,110,0.35))", animationDelay: "0s" }} />
+          <img src={SPLASH_IMG} alt="FORGE" className="splash-in splash-figure" style={{
+            width: "78%", maxWidth: 340,
+            WebkitMaskImage: "radial-gradient(circle at 50% 54%, #000 42%, transparent 68%)",
+            maskImage: "radial-gradient(circle at 50% 54%, #000 42%, transparent 68%)",
+            filter: "drop-shadow(0 0 26px rgba(200,169,110,0.35)) brightness(1.08) contrast(1.1)",
+            animationDelay: "0s",
+          }} />
           <div style={{ textAlign: "center" }}>
             <div className="splash-in" style={{ fontFamily: "'Bebas Neue'", fontSize: "2.2rem", letterSpacing: "9px", color: "#c8a96e", animationDelay: "0.35s" }}>FORGE</div>
             <div className="splash-in" style={{ width: 46, height: 1, background: "#4a3d28", margin: "8px auto", animationDelay: "0.6s" }} />
@@ -740,6 +747,8 @@ ${summary}
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;700&display=swap');
         @keyframes splashIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
         .splash-in { opacity: 0; animation: splashIn 0.7s ease forwards; }
+        @keyframes splashBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+        .splash-figure { animation: splashIn 0.7s ease forwards, splashBreathe 3.2s ease-in-out 0.7s infinite; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { width: 100%; max-width: 100%; overflow-x: hidden; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; }
         input, textarea { font-family: inherit; }
