@@ -737,7 +737,7 @@ ${summary}
             <div className="splash-in" style={{ fontFamily: "'Bebas Neue'", fontSize: "2.2rem", letterSpacing: "9px", color: "#c8a96e", animationDelay: "0.35s" }}>FORGE</div>
             <div className="splash-in" style={{ width: 46, height: 1, background: "#4a3d28", margin: "8px auto", animationDelay: "0.6s" }} />
             <div className="splash-in" style={{ fontSize: "0.68rem", letterSpacing: "3px", color: "#8a7a5c", textTransform: "uppercase", animationDelay: "0.75s" }}>
-              {t("AI가 매일 벼려내는 나의 운동", "Forged Daily By AI")}
+              FORGED DAILY BY AI
             </div>
           </div>
         </div>
