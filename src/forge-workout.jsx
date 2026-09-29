@@ -459,8 +459,8 @@ export default function WorkoutTracker() {
 
   // 시작 스플래시: 잠깐 보여주고 페이드아웃 후 본 화면으로
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashPhase("fading"), 1900);
-    const t2 = setTimeout(() => setSplashPhase("hidden"), 1900 + 550);
+    const t1 = setTimeout(() => setSplashPhase("fading"), 2600);
+    const t2 = setTimeout(() => setSplashPhase("hidden"), 2600 + 550);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
