@@ -201,6 +201,7 @@ const CARDIO_EN = { "러닝머신": "Treadmill", "사이클": "Cycle", "일립�
 const STORAGE_KEY = "forge_sessions_v3";
 const CUSTOM_EX_KEY = "forge_custom_exercises_v1";
 const LANG_KEY = "forge_lang_v1";
+const GOAL_KEY = "forge_goal_v1";
 const DEFAULT_REST = 90;
 const PRESET_VISIBLE = 8;
 
@@ -220,6 +221,7 @@ function normalizeSessions(raw) {
     startTime: s.startTime || "",
     endTime: s.endTime || "",
     cardio: (s.cardio || []).map(c => ({ ...c, id: c.id || uid() })), // 기존 필드 유지 + 선택 필드(incline, calories)
+    condition: s.condition || null, // 오늘 컨디션(선택 입력) — 없으면 null, AI 추천 시 무시됨
     entries: (s.entries || []).map(e => ({
       id: e.id || uid(),
       groupId: e.groupId,
@@ -242,6 +244,18 @@ function saveCustomExercises(m) { try { localStorage.setItem(CUSTOM_EX_KEY, JSON
 function loadLang() {
   try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "ko"; } catch { return "ko"; }
 }
+
+const GOAL_TYPES = [
+  { id: "cut", ko: "감량", en: "Cut / Lose Fat" },
+  { id: "bulk", ko: "증량", en: "Bulk / Gain Muscle" },
+  { id: "maintain", ko: "유지", en: "Maintain" },
+  { id: "define", ko: "특정 부위 데피니션", en: "Definition (Target Area)" },
+];
+function loadGoal() {
+  try { return { type: "", targetValue: "", targetDate: "", ...(JSON.parse(localStorage.getItem(GOAL_KEY)) || {}) }; }
+  catch { return { type: "", targetValue: "", targetDate: "" }; }
+}
+function saveGoal(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
 function daysAgoLabel(dateStr, lang) {
   const en = lang === "en";
@@ -352,6 +366,7 @@ export default function WorkoutTracker() {
   const [cardioCalories, setCardioCalories] = useState("");
   const [showSuggest, setShowSuggest] = useState(false);
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
+  const [goal, setGoal] = useState(() => loadGoal());
   const [showAllPresets, setShowAllPresets] = useState(false);
   const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
   const [restRemaining, setRestRemaining] = useState(0);
@@ -415,7 +430,7 @@ export default function WorkoutTracker() {
   }
 
   const today = todayISO();
-  const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, startTime: "", endTime: "", cardio: [], entries: [] };
+  const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, startTime: "", endTime: "", cardio: [], entries: [], condition: null };
   const lastDoneMap = getLastDoneMap(sessions, true);
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
@@ -607,6 +622,17 @@ export default function WorkoutTracker() {
   }
   function removeCardio(id) { persistSession({ cardio: todaySession.cardio.filter(c => c.id !== id) }); }
 
+  function updateGoal(patch) {
+    const next = { ...goal, ...patch };
+    setGoal(next);
+    saveGoal(next);
+  }
+
+  function updateCondition(patch) {
+    const next = { ...(todaySession.condition || {}), ...patch };
+    persistSession({ condition: next });
+  }
+
   function sendFeedback() {
     const subject = encodeURIComponent(t("FORGE 앱 피드백", "FORGE App Feedback"));
     const body = encodeURIComponent(t("여기에 의견을 적어주세요:\n\n", "Write your feedback here:\n\n"));
@@ -671,21 +697,48 @@ export default function WorkoutTracker() {
     const summary = MUSCLE_GROUPS.filter(g => g.id !== "free")
       .map(g => `${en ? g.en : g.name}: ` + g.subtags.map(st => `${en ? st.en : st.name}(${daysAgoLabel(lastDoneMap[st.id], lang)})`).join(", "))
       .join("\n");
+    // 그레이스풀 디그레이데이션: 목표/컨디션/가용시간은 전부 선택 입력 — 없으면 그 항목만 생략하고 있는 정보로 최선의 추천을 하도록 지시
+    const goalLabel = goal.type ? (GOAL_TYPES.find(g => g.id === goal.type) || {})[en ? "en" : "ko"] : "";
+    const goalLine = goalLabel
+      ? (en ? `Goal: ${goalLabel}${goal.targetValue ? ` (target: ${goal.targetValue})` : ""}${goal.targetDate ? `, by ${goal.targetDate}` : ""}`
+            : `목표: ${goalLabel}${goal.targetValue ? ` (목표치: ${goal.targetValue})` : ""}${goal.targetDate ? `, ${goal.targetDate}까지` : ""}`)
+      : (en ? "Goal: not set" : "목표: 설정 안 함");
+    const fatigueMap = { good: en ? "feeling good" : "컨디션 좋음", ok: en ? "so-so" : "보통", tired: en ? "tired" : "피곤함" };
+    const conditionLine = todaySession.condition?.fatigue || todaySession.condition?.minutesAvailable
+      ? (en
+          ? `Today's condition: ${fatigueMap[todaySession.condition?.fatigue] || "not specified"}${todaySession.condition?.minutesAvailable ? `, ${todaySession.condition.minutesAvailable} minutes available` : ""}`
+          : `오늘 컨디션: ${fatigueMap[todaySession.condition?.fatigue] || "미입력"}${todaySession.condition?.minutesAvailable ? `, 가용 시간 ${todaySession.condition.minutesAvailable}분` : ""}`)
+      : (en ? "Today's condition: not entered" : "오늘 컨디션: 입력 안 함");
+    const degradeNote = en
+      ? "Some fields above may say 'not set' or 'not entered' — that's fine, just ignore those and give the best possible plan with whatever information is available. Never refuse or ask for missing info."
+      : "위 항목 중 '설정 안 함'/'입력 안 함'이 있을 수 있어요 — 그건 그냥 무시하고, 있는 정보만으로 최선의 프로그램을 추천해주세요. 정보 부족을 이유로 추천을 거부하거나 되묻지 마세요.";
     const prompt = en
-      ? `The user goes to the gym irregularly and trains chest/back/legs/shoulders as a base full-body routine, then spends about the last 20 minutes on arms or lagging muscle groups. Below is how long ago each sub-area was last trained:
+      ? `The user goes to the gym irregularly and trains chest/back/legs/shoulders as a base full-body routine, then spends about the last 20 minutes on arms or lagging muscle groups.
+
+${goalLine}
+${conditionLine}
+${degradeNote}
+
+Below is how long ago each sub-area was last trained:
 
 ${summary}
 
 User note: "${aiNote || "none"}"
 
-Based on this, recommend in 3-4 natural sentences which sub-areas to prioritise today, with reasons rather than a bullet list.`
-      : `사용자는 헬스장에 갈 때마다 가슴/등/다리/어깨를 기본으로 전신운동을 하고, 마지막 약 20분은 팔이나 부족한 부위를 자유롭게 보충합니다. 아래는 각 부위 세부 항목을 마지막으로 수행한 지 며칠 됐는지입니다:
+Based on all of this, recommend in 3-4 natural sentences which sub-areas to prioritise today (and adjust intensity/volume for today's condition and time if given), with reasons rather than a bullet list.`
+      : `사용자는 헬스장에 갈 때마다 가슴/등/다리/어깨를 기본으로 전신운동을 하고, 마지막 약 20분은 팔이나 부족한 부위를 자유롭게 보충합니다.
+
+${goalLine}
+${conditionLine}
+${degradeNote}
+
+아래는 각 부위 세부 항목을 마지막으로 수행한 지 며칠 됐는지입니다:
 
 ${summary}
 
 사용자 메모: "${aiNote || "없음"}"
 
-이 정보를 참고해서 오늘 어떤 세부 부위를 우선하면 좋을지 한국어로 3~4문장 이내, 자연스러운 문장으로 추천해줘. 목록 나열 대신 이유를 곁들여서.`;
+이 모든 정보를 참고해서(목표와 오늘 컨디션/가용 시간이 있다면 강도·볼륨도 거기에 맞춰서) 오늘 어떤 세부 부위를 우선하면 좋을지 한국어로 3~4문장 이내, 자연스러운 문장으로 추천해줘. 목록 나열 대신 이유를 곁들여서.`;
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -1075,8 +1128,42 @@ ${summary}
 
       {tab === "ai" && (
         <div style={{ padding: "16px 20px" }}>
+          <div style={{ ...headingStyle, marginBottom: 6 }}>{t("나의 AI 코치", "My AI Coach")}</div>
+          <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 18, lineHeight: 1.6 }}>
+            {t("아래 정보를 넣어두면 더 정확한 추천을 받아요. 하나도 없어도 괜찮아요 — AI가 있는 정보만 가지고 최선의 프로그램을 짜줘요.", "Fill in what you can below for a more accurate plan. Nothing is required — the AI works with whatever you give it.")}
+          </div>
+
+          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("목표 (선택)", "Goal (optional)")}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {GOAL_TYPES.map(g => (
+              <button key={g.id} className={`chip${goal.type === g.id ? " active" : ""}`} onClick={() => updateGoal({ type: goal.type === g.id ? "" : g.id })}>
+                {lang === "en" ? g.en : g.ko}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+            <input className="text-input" placeholder={t("목표 수치 (예: -5kg, 체지방 15%)", "Target (e.g. -5kg, 15% body fat)")} value={goal.targetValue} onChange={e => updateGoal({ targetValue: e.target.value })} />
+            <input className="text-input" style={{ maxWidth: 160 }} type="date" value={goal.targetDate} onChange={e => updateGoal({ targetDate: e.target.value })} />
+          </div>
+
+          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("몸 상태 기록 (선택)", "Body Scan (optional)")}</div>
+          <div style={{ background: "#111", border: "1px dashed #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: "0.78rem", color: "#777", lineHeight: 1.6, marginBottom: 24 }}>
+            {t("곧 추가돼요: 인바디·Evolt 등 체성분 스캔 결과지를 사진으로 찍으면 자동으로 숫자를 읽어서 기록해줘요. 있으면 더 정밀한 추천을 받을 수 있어요.", "Coming soon: photograph any body-composition scan result (InBody, Evolt, etc.) and it'll be read automatically. Having this gives you a more precise plan.")}
+          </div>
+
+          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("오늘 컨디션 (선택)", "Today's Condition (optional)")}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            {[["good", t("컨디션 좋음", "Feeling good")], ["ok", t("보통", "OK")], ["tired", t("피곤함", "Tired")]].map(([id, label]) => (
+              <button key={id} className={`chip${todaySession.condition?.fatigue === id ? " active" : ""}`} onClick={() => updateCondition({ fatigue: todaySession.condition?.fatigue === id ? "" : id })}>{label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
+            <input className="text-input" style={{ maxWidth: 140 }} type="number" inputMode="numeric" placeholder={t("오늘 가용 시간(분)", "Minutes available")} value={todaySession.condition?.minutesAvailable || ""} onChange={e => updateCondition({ minutesAvailable: e.target.value })} />
+            <span style={{ fontSize: "0.72rem", color: "#666" }}>{t("예: 60분", "e.g. 60 min")}</span>
+          </div>
+
           <div style={{ ...headingStyle, marginBottom: 6 }}>{t("오늘 뭐 하지?", "What should I train today?")}</div>
-          <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 14 }}>{t("부위별 마지막 수행일을 참고해서 AI가 오늘 우선순위를 추천해줘요.", "Uses when you last trained each area to suggest today's priorities.")}</div>
+          <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 14 }}>{t("위에 입력한 것 + 지난 운동 기록을 참고해서 AI가 오늘 프로그램을 추천해줘요.", "Uses what you entered above plus your workout history to suggest today's plan.")}</div>
           {!HAS_AI_KEY ? (
             <div style={{ background: "#111", border: "1px dashed #3a3226", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>
               <div style={{ color: "#c8a96e", fontWeight: 700, marginBottom: 6 }}>{t("🚧 준비 중", "🚧 Coming soon")}</div>
