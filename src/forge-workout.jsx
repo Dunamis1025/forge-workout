@@ -341,7 +341,7 @@ function formatRoundsCompact(rounds) {
 function totalSetsOf(entry) { return entry.rounds.reduce((sum, r) => sum + r.sets.length, 0); }
 
 const HAS_AI_KEY = !!process.env.REACT_APP_ANTHROPIC_API_KEY;
-const FEEDBACK_EMAIL = "yunho1025@gmail.com";
+const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeWMeGqcLBOcyOY0daGJXBuDRuHXXv9ISmUF2HRHIaT1BFrpw/viewform";
 
 export default function WorkoutTracker() {
   const [tab, setTab] = useState("today");
@@ -633,11 +633,6 @@ export default function WorkoutTracker() {
     persistSession({ condition: next });
   }
 
-  function sendFeedback() {
-    const subject = encodeURIComponent(t("FORGE 앱 피드백", "FORGE App Feedback"));
-    const body = encodeURIComponent(t("여기에 의견을 적어주세요:\n\n", "Write your feedback here:\n\n"));
-    window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
-  }
 
   // ── 백업: 기록을 JSON 파일로 폰에 내려받기 / 파일에서 불러오기 (클라우드 저장 아님) ──
   function exportData() {
@@ -1214,7 +1209,7 @@ ${summary}
           <div style={{ fontSize: "0.8rem", color: "#888", lineHeight: 1.7, marginBottom: 12 }}>
             {t("써보면서 불편한 점이나 있었으면 하는 기능이 있으면 편하게 알려주세요.", "If something feels off or you'd like a feature, let me know.")}
           </div>
-          <button className="ghost-btn" style={{ padding: "10px 16px", fontSize: "0.85rem" }} onClick={sendFeedback}>{t("✉ 피드백 보내기", "✉ Send Feedback")}</button>
+          <a className="ghost-btn" href={FEEDBACK_FORM_URL} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", padding: "10px 16px", fontSize: "0.85rem", textDecoration: "none" }}>{t("📝 피드백 남기기 (1분)", "📝 Give Feedback (1 min)")}</a>
         </div>
       )}
 
