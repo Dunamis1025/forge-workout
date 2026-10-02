@@ -257,6 +257,52 @@ function loadGoal() {
 }
 function saveGoal(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
+// ── 몸 기록: [{id, date, weight, bodyFat?, muscle?}] — 날짜당 1개, 운동 기록과 별도 저장 ──
+// 체지방률/근육량은 선택. 나중에 인바디 사진 인식 결과도 같은 구조로 들어옴.
+const BODY_KEY = "forge_body_v1";
+const FEEDBACK_DISMISS_KEY = "forge_feedback_dismissed_v1";
+function posNum(v) { const n = Number(v); return v !== "" && v !== null && v !== undefined && isFinite(n) && n > 0 ? n : null; }
+function normalizeBody(raw) {
+  const byDate = {};
+  (Array.isArray(raw) ? raw : []).forEach(b => {
+    const w = posNum(b && b.weight);
+    if (!b || !b.date || w === null) return;
+    const item = { id: b.id || uid(), date: b.date, weight: w };
+    const bf = posNum(b.bodyFat); if (bf !== null) item.bodyFat = bf;
+    const mu = posNum(b.muscle); if (mu !== null) item.muscle = mu;
+    byDate[b.date] = item;
+  });
+  return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+}
+function loadBody() {
+  try { return normalizeBody(JSON.parse(localStorage.getItem(BODY_KEY)) || []); } catch { return []; }
+}
+function saveBody(list) { try { localStorage.setItem(BODY_KEY, JSON.stringify(list)); } catch {} }
+function dayDiff(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+// 7일 이동평균: 하루 변동(수분 등)을 걸러내고 진짜 추세만 보여줌
+function movingAvg(log) {
+  return log.map((cur, i) => {
+    const win = log.filter((o, j) => j <= i && dayDiff(o.date, cur.date) <= 6);
+    return win.reduce((s, o) => s + o.weight, 0) / win.length;
+  });
+}
+function bodyTrendLine(log, en) {
+  if (!log.length) return en ? "Body weight: not recorded" : "체중: 기록 없음";
+  const avg = movingAvg(log);
+  const last = log[log.length - 1];
+  let s = en ? `Body weight: latest ${last.weight}kg (${last.date})` : `체중: 최근 ${last.weight}kg (${last.date})`;
+  if (last.bodyFat) s += en ? `, body fat ${last.bodyFat}%` : `, 체지방률 ${last.bodyFat}%`;
+  if (last.muscle) s += en ? `, muscle mass ${last.muscle}kg` : `, 근육량 ${last.muscle}kg`;
+  const startIdx = log.findIndex(o => dayDiff(o.date, last.date) <= 30);
+  if (startIdx >= 0 && startIdx < log.length - 1) {
+    const delta = avg[log.length - 1] - avg[startIdx];
+    const span = dayDiff(log[startIdx].date, last.date);
+    const d = `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}kg`;
+    s += en ? `; 7-day-average trend over ${span} days: ${d}` : `; ${span}일간 7일 평균 추세: ${d}`;
+  }
+  return s;
+}
+
 function daysAgoLabel(dateStr, lang) {
   const en = lang === "en";
   if (!dateStr) return en ? "No record" : "기록 없음";
@@ -367,6 +413,11 @@ export default function WorkoutTracker() {
   const [showSuggest, setShowSuggest] = useState(false);
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
   const [goal, setGoal] = useState(() => loadGoal());
+  const [bodyLog, setBodyLog] = useState(() => loadBody());
+  const [bodyWeightInput, setBodyWeightInput] = useState("");
+  const [bodyFatInput, setBodyFatInput] = useState("");
+  const [bodyMuscleInput, setBodyMuscleInput] = useState("");
+  const [feedbackDismissed, setFeedbackDismissed] = useState(() => { try { return localStorage.getItem(FEEDBACK_DISMISS_KEY) === "1"; } catch { return false; } });
   const [showAllPresets, setShowAllPresets] = useState(false);
   const [restTimer, setRestTimer] = useState(null); // { entryId, exerciseName, endAt, duration }
   const [restRemaining, setRestRemaining] = useState(0);
@@ -432,6 +483,7 @@ export default function WorkoutTracker() {
   const today = todayISO();
   const todaySession = sessions.find(s => s.date === today) || { id: uid(), date: today, startTime: "", endTime: "", cardio: [], entries: [], condition: null };
   const lastDoneMap = getLastDoneMap(sessions, true);
+  const todayBody = bodyLog.find(b => b.date === today);
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
 
@@ -633,10 +685,40 @@ export default function WorkoutTracker() {
     persistSession({ condition: next });
   }
 
+  function addBody() {
+    const w = Number(bodyWeightInput);
+    if (!bodyWeightInput || !isFinite(w) || w < 20 || w > 400) { showToast(t("체중을 kg 단위로 입력해주세요 (예: 72.4)", "Enter weight in kg (e.g. 72.4)")); return; }
+    const item = { id: todayBody ? todayBody.id : uid(), date: today, weight: Math.round(w * 10) / 10 };
+    // 비워두면 오늘 이미 저장한 값 유지
+    const bf = bodyFatInput !== "" ? posNum(bodyFatInput) : (todayBody && todayBody.bodyFat) || null;
+    const mu = bodyMuscleInput !== "" ? posNum(bodyMuscleInput) : (todayBody && todayBody.muscle) || null;
+    if (bf !== null && bf < 80) item.bodyFat = bf;
+    if (mu !== null && mu < 300) item.muscle = mu;
+    const next = normalizeBody([...bodyLog.filter(b => b.date !== today), item]);
+    setBodyLog(next);
+    saveBody(next);
+    setBodyWeightInput("");
+    setBodyFatInput("");
+    setBodyMuscleInput("");
+    showToast(t("체중 기록 저장됐어요 ⚖️", "Weight saved ⚖️"));
+  }
+
+  function removeBody(id) {
+    if (!window.confirm(t("이 체중 기록을 삭제할까요?", "Delete this weight entry?"))) return;
+    const next = bodyLog.filter(b => b.id !== id);
+    setBodyLog(next);
+    saveBody(next);
+  }
+
+  function dismissFeedback() {
+    setFeedbackDismissed(true);
+    try { localStorage.setItem(FEEDBACK_DISMISS_KEY, "1"); } catch {}
+  }
+
 
   // ── 백업: 기록을 JSON 파일로 폰에 내려받기 / 파일에서 불러오기 (클라우드 저장 아님) ──
   function exportData() {
-    const payload = { app: "forge-workout", version: 3, exportedAt: new Date().toISOString(), sessions, customExercises };
+    const payload = { app: "forge-workout", version: 3, exportedAt: new Date().toISOString(), sessions, customExercises, bodyLog };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -656,12 +738,19 @@ export default function WorkoutTracker() {
       try {
         const parsed = JSON.parse(reader.result);
         const incoming = normalizeSessions(Array.isArray(parsed) ? parsed : parsed.sessions);
-        if (incoming.length === 0) { showToast(t("불러올 기록이 없어요", "No sessions found in file")); return; }
+        const incomingBody = Array.isArray(parsed) ? [] : normalizeBody(parsed.bodyLog);
+        if (incoming.length === 0 && incomingBody.length === 0) { showToast(t("불러올 기록이 없어요", "No sessions found in file")); return; }
         const msg = t(
-          `기록 ${incoming.length}개를 불러올까요?\n같은 날짜의 기록은 파일 내용으로 덮어써지고, 나머지 기록은 유지돼요.`,
-          `Import ${incoming.length} session(s)?\nSessions on the same date will be overwritten by the file; all others are kept.`
+          `운동 기록 ${incoming.length}개${incomingBody.length ? `, 체중 기록 ${incomingBody.length}개` : ""}를 불러올까요?\n같은 날짜의 기록은 파일 내용으로 덮어써지고, 나머지 기록은 유지돼요.`,
+          `Import ${incoming.length} session(s)${incomingBody.length ? ` and ${incomingBody.length} weight entr${incomingBody.length === 1 ? "y" : "ies"}` : ""}?\nEntries on the same date will be overwritten by the file; all others are kept.`
         );
         if (!window.confirm(msg)) return;
+        if (incomingBody.length) {
+          const bodyDates = new Set(incomingBody.map(b => b.date));
+          const mergedBody = normalizeBody([...bodyLog.filter(b => !bodyDates.has(b.date)), ...incomingBody]);
+          setBodyLog(mergedBody);
+          saveBody(mergedBody);
+        }
         const incomingIds = new Set(incoming.map(s => s.id));
         const incomingDates = new Set(incoming.map(s => s.date));
         const kept = sessions.filter(s => !incomingIds.has(s.id) && !incomingDates.has(s.date));
@@ -704,13 +793,15 @@ export default function WorkoutTracker() {
           ? `Today's condition: ${fatigueMap[todaySession.condition?.fatigue] || "not specified"}${todaySession.condition?.minutesAvailable ? `, ${todaySession.condition.minutesAvailable} minutes available` : ""}`
           : `오늘 컨디션: ${fatigueMap[todaySession.condition?.fatigue] || "미입력"}${todaySession.condition?.minutesAvailable ? `, 가용 시간 ${todaySession.condition.minutesAvailable}분` : ""}`)
       : (en ? "Today's condition: not entered" : "오늘 컨디션: 입력 안 함");
+    const bodyLine = bodyTrendLine(bodyLog, en);
     const degradeNote = en
-      ? "Some fields above may say 'not set' or 'not entered' — that's fine, just ignore those and give the best possible plan with whatever information is available. Never refuse or ask for missing info."
-      : "위 항목 중 '설정 안 함'/'입력 안 함'이 있을 수 있어요 — 그건 그냥 무시하고, 있는 정보만으로 최선의 프로그램을 추천해주세요. 정보 부족을 이유로 추천을 거부하거나 되묻지 마세요.";
+      ? "Some fields above may say 'not set', 'not entered' or 'not recorded' — that's fine, just ignore those and give the best possible plan with whatever information is available. Never refuse or ask for missing info."
+      : "위 항목 중 '설정 안 함'/'입력 안 함'/'기록 없음'이 있을 수 있어요 — 그건 그냥 무시하고, 있는 정보만으로 최선의 프로그램을 추천해주세요. 정보 부족을 이유로 추천을 거부하거나 되묻지 마세요.";
     const prompt = en
       ? `The user goes to the gym irregularly and trains chest/back/legs/shoulders as a base full-body routine, then spends about the last 20 minutes on arms or lagging muscle groups.
 
 ${goalLine}
+${bodyLine}
 ${conditionLine}
 ${degradeNote}
 
@@ -724,6 +815,7 @@ Based on all of this, recommend in 3-4 natural sentences which sub-areas to prio
       : `사용자는 헬스장에 갈 때마다 가슴/등/다리/어깨를 기본으로 전신운동을 하고, 마지막 약 20분은 팔이나 부족한 부위를 자유롭게 보충합니다.
 
 ${goalLine}
+${bodyLine}
 ${conditionLine}
 ${degradeNote}
 
@@ -821,6 +913,7 @@ ${summary}
           <div style={{ fontSize: "0.65rem", color: "#555", letterSpacing: "1px" }}>AI WORKOUT TRACKER</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <a href={FEEDBACK_FORM_URL} target="_blank" rel="noopener noreferrer" aria-label={t("피드백 남기기", "Give feedback")} title={t("피드백 남기기", "Give feedback")} style={{ border: "1px solid #2a2a2a", borderRadius: 4, padding: "3px 7px", fontSize: "0.8rem", textDecoration: "none", lineHeight: 1.4 }}>💬</a>
           <div style={{ display: "flex", border: "1px solid #2a2a2a", borderRadius: 4, overflow: "hidden" }}>
             {["ko", "en"].map(l => (
               <button key={l} onClick={() => changeLang(l)} style={{ background: lang === l ? "#c8a96e" : "none", color: lang === l ? "#0a0a0a" : "#888", border: "none", fontSize: "0.7rem", fontWeight: 700, padding: "4px 8px", cursor: "pointer" }}>{l.toUpperCase()}</button>
@@ -838,6 +931,13 @@ ${summary}
 
       {tab === "today" && (
         <div style={{ padding: "16px 20px" }}>
+          {!feedbackDismissed && (sessions.some(s => s.entries.length > 0) || bodyLog.length > 0) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#14110a", border: "1px solid #3a3226", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: "0.78rem", color: "#ccc", lineHeight: 1.5 }}>{t("💬 써보니 어때요? 불편한 점이나 바라는 기능을 1분만 알려주세요.", "💬 How's it going? Tell me what's off or what you'd like — takes 1 minute.")}</div>
+              <a className="ghost-btn" href={FEEDBACK_FORM_URL} target="_blank" rel="noopener noreferrer" onClick={dismissFeedback} style={{ padding: "6px 12px", fontSize: "0.78rem", textDecoration: "none", whiteSpace: "nowrap" }}>{t("남기기", "Open")}</a>
+              <button onClick={dismissFeedback} aria-label={t("닫기", "Dismiss")} style={{ background: "none", border: "none", color: "#777", fontSize: "1rem", cursor: "pointer", padding: "0 2px" }}>✕</button>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
             <div style={{ flex: 1, minWidth: 0, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
               <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("시작 시간", "Start time")}</div>
@@ -858,6 +958,22 @@ ${summary}
             <div style={{ fontSize: "0.75rem", color: "#888", marginBottom: 20 }}>{t("총", "Total")} {formatDuration(todaySession.startTime, todaySession.endTime, lang)}</div>
           )}
           {!(todaySession.startTime && todaySession.endTime) && <div style={{ marginBottom: 20 }} />}
+
+          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+              <div style={{ fontSize: "0.7rem", color: "#666" }}>{t("⚖️ 오늘 체중", "⚖️ Today's weight")}</div>
+              {todayBody && <div style={{ fontSize: "0.72rem", color: "#c8a96e" }}>{t("기록됨", "Saved")}: {todayBody.weight}kg{todayBody.bodyFat ? ` · ${todayBody.bodyFat}%` : ""}{todayBody.muscle ? ` · ${todayBody.muscle}kg ${t("근육", "muscle")}` : ""}</div>}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체중 kg", "Weight kg")} value={bodyWeightInput} onChange={e => setBodyWeightInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addBody(); }} />
+              <button className="add-btn" onClick={addBody} style={{ whiteSpace: "nowrap" }}>{todayBody ? t("수정", "Update") : t("저장", "Save")}</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체지방률 %", "Body fat %")} value={bodyFatInput} onChange={e => setBodyFatInput(e.target.value)} />
+              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("근육량 kg", "Muscle kg")} value={bodyMuscleInput} onChange={e => setBodyMuscleInput(e.target.value)} />
+            </div>
+            <div style={{ fontSize: "0.66rem", color: "#555", marginTop: 6 }}>{t("체지방·근육량은 인바디 등 결과가 있을 때만 넣으면 돼요.", "Body fat and muscle: only if you have a scan result.")}</div>
+          </div>
 
           <div style={headingStyle}>{t("부위별 마지막 수행", "Last Trained")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
@@ -1080,6 +1196,56 @@ ${summary}
 
       {tab === "progress" && (
         <div style={{ padding: "16px 20px" }}>
+          <div style={{ ...headingStyle, marginBottom: 12 }}>{t("체중 추이", "Body Weight")}</div>
+          {bodyLog.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem", marginBottom: 24 }}>{t("'오늘' 탭에서 체중을 기록하면 여기에 추이가 나와요.", "Log your weight on the Today tab to see the trend here.")}</div>}
+          {bodyLog.length > 0 && (() => {
+            const avgAll = movingAvg(bodyLog);
+            const startIdx = Math.max(0, bodyLog.length - 30);
+            const shown = bodyLog.slice(startIdx);
+            const avgs = avgAll.slice(startIdx);
+            const last = bodyLog[bodyLog.length - 1];
+            const delta = avgs[avgs.length - 1] - avgs[0];
+            const W = 300, H = 110, L = 34, R = 8, T = 10, B = 18;
+            const vals = [...shown.map(b => b.weight), ...avgs];
+            const lo = Math.min(...vals) - 0.3, hi = Math.max(...vals) + 0.3;
+            const spanDays = shown.length > 1 ? dayDiff(shown[0].date, shown[shown.length - 1].date) || 1 : 1;
+            const x = d => L + (dayDiff(shown[0].date, d) / spanDays) * (W - L - R);
+            const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+            return (
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px", marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                  <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", letterSpacing: "1px", color: "#f0ede6" }}>{last.weight}<span style={{ fontSize: "0.9rem", color: "#888" }}> kg</span></div>
+                  {shown.length > 1 && <div style={{ fontSize: "0.78rem", color: "#c8a96e" }}>{t("7일 평균 추세", "7-day avg trend")} {delta >= 0 ? "+" : ""}{delta.toFixed(1)}kg</div>}
+                </div>
+                {shown.length < 2 ? (
+                  <div style={{ color: "#555", fontSize: "0.8rem" }}>{t("2일 이상 기록하면 그래프가 나와요.", "Log at least 2 days to see a chart.")}</div>
+                ) : (
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+                    <line x1={L} y1={T} x2={W - R} y2={T} stroke="#1e1e1e" />
+                    <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="#1e1e1e" />
+                    <text x={L - 4} y={T + 3} fontSize="8" fill="#555" textAnchor="end">{hi.toFixed(1)}</text>
+                    <text x={L - 4} y={H - B + 3} fontSize="8" fill="#555" textAnchor="end">{lo.toFixed(1)}</text>
+                    <text x={L} y={H - 4} fontSize="8" fill="#555">{shown[0].date.slice(5)}</text>
+                    <text x={W - R} y={H - 4} fontSize="8" fill="#555" textAnchor="end">{shown[shown.length - 1].date.slice(5)}</text>
+                    {shown.map(b => <circle key={b.id} cx={x(b.date)} cy={y(b.weight)} r="2.5" fill="#555" />)}
+                    <polyline points={shown.map((b, i) => `${x(b.date)},${y(avgs[i])}`).join(" ")} fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shown.length >= 2 && <div style={{ fontSize: "0.66rem", color: "#555", marginTop: 6 }}>{t("● 하루 기록  ━ 7일 평균. 체중은 하루에도 오르내리니 평균선을 보세요.", "● daily  ━ 7-day average. Weight swings day to day — watch the average line.")}</div>}
+              </div>
+            );
+          })()}
+          {bodyLog.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
+              {[...bodyLog].slice(-5).reverse().map(b => (
+                <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
+                  <span>{b.date.slice(5)} · {b.weight}kg{b.bodyFat ? ` · ${t("체지방", "fat")} ${b.bodyFat}%` : ""}{b.muscle ? ` · ${t("근육", "muscle")} ${b.muscle}kg` : ""}</span>
+                  <button onClick={() => removeBody(b.id)} aria-label={t("삭제", "Delete")} style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: "0.9rem" }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ ...headingStyle, marginBottom: 12 }}>{t("운동별 진행", "Progress by Exercise")}</div>
           {allExerciseNames.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem" }}>{t("기록을 쌓으면 여기서 무게 변화를 볼 수 있어요.", "Log a few sessions to see your weight progress here.")}</div>}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
@@ -1144,6 +1310,9 @@ ${summary}
           <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("몸 상태 기록 (선택)", "Body Scan (optional)")}</div>
           <div style={{ background: "#111", border: "1px dashed #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: "0.78rem", color: "#777", lineHeight: 1.6, marginBottom: 24 }}>
             {t("곧 추가돼요: 인바디·Evolt 등 체성분 스캔 결과지를 사진으로 찍으면 자동으로 숫자를 읽어서 기록해줘요. 있으면 더 정밀한 추천을 받을 수 있어요.", "Coming soon: photograph any body-composition scan result (InBody, Evolt, etc.) and it'll be read automatically. Having this gives you a more precise plan.")}
+            <div style={{ marginTop: 8, color: bodyLog.length ? "#c8a96e" : "#555" }}>
+              {bodyLog.length ? t(`⚖️ 최근 체중 ${bodyLog[bodyLog.length - 1].weight}kg — 추천에 반영돼요. (기록은 '오늘' 탭에서)`, `⚖️ Latest weight ${bodyLog[bodyLog.length - 1].weight}kg — used in recommendations. (Log it on the Today tab)`) : t("⚖️ 체중을 '오늘' 탭에서 기록하면 추천에 반영돼요.", "⚖️ Log your weight on the Today tab to include it in recommendations.")}
+            </div>
           </div>
 
           <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("오늘 컨디션 (선택)", "Today's Condition (optional)")}</div>
