@@ -594,15 +594,28 @@ export default function WorkoutTracker() {
     persistSession({ entries: todaySession.entries.filter(e => e.id !== entryId) });
   }
 
-  function addSet(entryId) {
+  // 특정 라운드(roundIdx)에 세트 추가 — 실수로 다음 라운드를 열어도 이전 라운드로 돌아가 세트를 더할 수 있음
+  function addSet(entryId, roundIdx) {
     persistSession({
       entries: todaySession.entries.map(e => {
         if (e.id !== entryId) return e;
         const rounds = e.rounds.length ? [...e.rounds] : [{ id: uid(), sets: [] }];
-        const lastIdx = rounds.length - 1;
-        rounds[lastIdx] = { ...rounds[lastIdx], sets: [...rounds[lastIdx].sets, { weight: "", reps: "" }] };
+        const idx = roundIdx === undefined ? rounds.length - 1 : roundIdx;
+        rounds[idx] = { ...rounds[idx], sets: [...rounds[idx].sets, { weight: "", reps: "" }] };
         return { ...e, rounds };
       }),
+    });
+  }
+
+  // 실수로 만든 라운드 삭제 (입력한 숫자가 있으면 한 번 확인)
+  function removeRound(entryId, roundIdx) {
+    const entry = todaySession.entries.find(e => e.id === entryId);
+    const round = entry && entry.rounds[roundIdx];
+    if (!round || entry.rounds.length <= 1) return;
+    const hasData = round.sets.some(s => s.weight !== "" || s.reps !== "");
+    if (hasData && !window.confirm(t(`라운드 ${roundIdx + 1}의 기록을 삭제할까요?`, `Delete round ${roundIdx + 1} and its sets?`))) return;
+    persistSession({
+      entries: todaySession.entries.map(e => (e.id === entryId ? { ...e, rounds: e.rounds.filter((_, i) => i !== roundIdx) } : e)),
     });
   }
 
@@ -1093,7 +1106,12 @@ ${summary}
                       </div>
                       {entry.rounds.map((round, ri) => (
                         <div key={round.id} style={{ marginTop: ri > 0 ? 10 : 0, paddingTop: ri > 0 ? 8 : 0, borderTop: ri > 0 ? "1px dashed #2a2a2a" : "none" }}>
-                          {entry.rounds.length > 1 && <div style={{ fontSize: "0.68rem", color: "#c8a96e", marginBottom: 6 }}>{t(`라운드 ${ri + 1}`, `Round ${ri + 1}`)}</div>}
+                          {entry.rounds.length > 1 && (
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                              <div style={{ fontSize: "0.68rem", color: "#c8a96e" }}>{t(`라운드 ${ri + 1}`, `Round ${ri + 1}`)}</div>
+                              <button onClick={() => removeRound(entry.id, ri)} style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: "0.68rem", padding: "2px 4px" }}>{t("라운드 삭제", "Delete round")}</button>
+                            </div>
+                          )}
                           {round.sets.map((st, si) => {
                             const prev = history?.rounds?.[ri]?.sets?.[si];
                             return (
@@ -1106,10 +1124,10 @@ ${summary}
                               </div>
                             );
                           })}
+                          <button className="ghost-btn" style={{ fontSize: "0.72rem", padding: "5px 10px" }} onClick={() => addSet(entry.id, ri)}>{entry.rounds.length > 1 ? t(`+ 라운드 ${ri + 1}에 세트 추가`, `+ Add set to round ${ri + 1}`) : t("+ 세트 추가", "+ Add set")}</button>
                         </div>
                       ))}
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-                        <button className="ghost-btn" onClick={() => addSet(entry.id)}>{t("+ 세트 추가", "+ Add set")}</button>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
                         <button className="add-btn" style={{ fontSize: "0.78rem", padding: "7px 12px" }} onClick={() => addRound(entry.id)}>{t("🕐 휴식 시작 → 다음 라운드", "🕐 Start rest → Next round")}</button>
                         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span style={{ fontSize: "0.68rem", color: "#666" }}>{t("휴식", "Rest")}</span>
