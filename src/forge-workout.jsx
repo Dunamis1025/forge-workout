@@ -380,6 +380,25 @@ function getProgressForExercise(sessions, exerciseName) {
     .filter(Boolean);
 }
 
+// 지난 기록에서 가장 무거운 세트(무게가 같으면 렙이 많은 쪽) — "저번에 최대 몇 kg였지?"에 바로 답하기 위함
+function bestSetOf(rounds) {
+  let best = null;
+  for (const r of rounds || []) {
+    for (const s of r.sets) {
+      const w = parseFloat(s.weight), rp = parseFloat(s.reps) || 0;
+      if (isNaN(w)) continue;
+      if (!best || w > best.w || (w === best.w && rp > best.reps)) best = { w, reps: rp };
+    }
+  }
+  return best;
+}
+
+// 지난 기록의 마지막 세트 (세트 개수가 지난번보다 늘었을 때 참고용)
+function lastSetOf(rounds) {
+  const flat = (rounds || []).flatMap(r => r.sets);
+  return flat.length ? flat[flat.length - 1] : null;
+}
+
 function formatRoundsCompact(rounds) {
   return rounds.map(r => r.sets.map(s => `${s.weight || 0}×${s.reps || 0}`).join(", ")).join(" / ");
 }
@@ -592,6 +611,27 @@ export default function WorkoutTracker() {
 
   function removeEntry(entryId) {
     persistSession({ entries: todaySession.entries.filter(e => e.id !== entryId) });
+  }
+
+  // 지난번 무게를 빈 칸에만 채워줌 (렙스는 건드리지 않음 → 실제로 한 횟수만 직접 기록)
+  function fillWeightsFromLast(entryId, history) {
+    if (!history) return;
+    persistSession({
+      entries: todaySession.entries.map(e => {
+        if (e.id !== entryId) return e;
+        return {
+          ...e,
+          rounds: e.rounds.map((r, ri) => ({
+            ...r,
+            sets: r.sets.map((s, si) => {
+              if (s.weight !== "") return s;
+              const ref = history.rounds?.[ri]?.sets?.[si] || lastSetOf(history.rounds);
+              return ref && ref.weight ? { ...s, weight: String(ref.weight) } : s;
+            }),
+          })),
+        };
+      }),
+    });
   }
 
   // 특정 라운드(roundIdx)에 세트 추가 — 실수로 다음 라운드를 열어도 이전 라운드로 돌아가 세트를 더할 수 있음
@@ -1101,6 +1141,32 @@ ${summary}
 
                   {!isCollapsed && (
                     <div style={{ marginTop: 10 }}>
+                      {history ? (() => {
+                        const best = bestSetOf(history.rounds);
+                        const canFill = entry.rounds.some(r => r.sets.some(s => s.weight === ""));
+                        return (
+                          <div style={{ background: "#171512", border: "1px solid #3a3224", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+                            <div style={{ fontSize: "0.68rem", color: "#c8a96e", marginBottom: 4 }}>
+                              {t("📋 지난번", "📋 Last time")} · {formatDate(history.date, lang)} · {daysAgoLabel(history.date, lang)}
+                            </div>
+                            <div style={{ fontSize: "0.82rem", color: "#f0ede6", lineHeight: 1.5, wordBreak: "break-word" }}>{formatRoundsCompact(history.rounds)}</div>
+                            {best && (
+                              <div style={{ fontSize: "0.7rem", color: "#888", marginTop: 4 }}>
+                                {t("최고", "Best")}: {best.w}kg × {best.reps || "—"}
+                              </div>
+                            )}
+                            {canFill && (
+                              <button className="ghost-btn" style={{ marginTop: 8, fontSize: "0.72rem", padding: "5px 10px" }} onClick={() => fillWeightsFromLast(entry.id, history)}>
+                                {t("지난번 무게로 채우기", "Fill with last weights")}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 10 }}>
+                          {t("처음 하는 운동이에요 — 오늘 기록이 다음번 기준이 돼요.", "First time doing this — today's log becomes your baseline.")}
+                        </div>
+                      )}
                       <div style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
                         <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("무게(kg)", "Weight (kg)")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("렙스", "Reps")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("지난번", "Last")}</div><div />
                       </div>
@@ -1114,11 +1180,12 @@ ${summary}
                           )}
                           {round.sets.map((st, si) => {
                             const prev = history?.rounds?.[ri]?.sets?.[si];
+                            const hint = prev || (history ? lastSetOf(history.rounds) : null); // 입력칸에 흐리게 보이는 지난번 숫자
                             return (
                               <div key={si} style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                 <div style={{ fontSize: "0.66rem", color: "#555", textAlign: "center" }}>{si + 1}</div>
-                                <input className="log-input" type="number" inputMode="decimal" placeholder="—" value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
-                                <input className="log-input" type="number" inputMode="numeric" placeholder="—" value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
+                                <input className="log-input" type="number" inputMode="decimal" placeholder={hint?.weight ? String(hint.weight) : "—"} value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
+                                <input className="log-input" type="number" inputMode="numeric" placeholder={hint?.reps ? String(hint.reps) : "—"} value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
                                 <div style={{ fontSize: "0.66rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || "—"}×${prev.reps || "—"}` : "—"}</div>
                                 <button onClick={() => removeSet(entry.id, ri, si)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.9rem" }}>×</button>
                               </div>
