@@ -195,8 +195,16 @@ function searchExercises(index, query, limit) {
   return results.slice(0, limit).map(r => r.item);
 }
 
-const CARDIO_TYPES = ["러닝머신", "사이클", "일립티컬", "로잉머신", "스텝퍼", "기타"];
-const CARDIO_EN = { "러닝머신": "Treadmill", "사이클": "Cycle", "일립티컬": "Elliptical", "로잉머신": "Rowing Machine", "스텝퍼": "Stepper", "기타": "Other" };
+const CARDIO_TYPES = ["러닝머신", "수영", "사이클", "일립티컬", "로잉머신", "스텝퍼", "기타"];
+const CARDIO_EN = { "러닝머신": "Treadmill", "수영": "Swimming", "사이클": "Cycle", "일립티컬": "Elliptical", "로잉머신": "Rowing Machine", "스텝퍼": "Stepper", "기타": "Other" };
+
+// 맨몸으로 하는 운동 (무게 칸 = '추가 무게', 비우면 내 체중). 카드에서 직접 켜고 끌 수도 있음(entry.bodyweight)
+const BODYWEIGHT_EXERCISES = new Set(["푸쉬업", "푸시업", "딥스", "풀업", "친업", "행잉 레그레이즈", "백 익스텐션", "플랭크", "싯업", "크런치", "레그레이즈", "버피"]);
+function isBodyweightEntry(entry) {
+  if (typeof entry.bodyweight === "boolean") return entry.bodyweight;
+  return BODYWEIGHT_EXERCISES.has(entry.exerciseName);
+}
+const UI_SIZE_KEY = "forge_ui_size_v1"; // "normal" | "large" — 글자/입력칸 크기
 
 const STORAGE_KEY = "forge_sessions_v3";
 const CUSTOM_EX_KEY = "forge_custom_exercises_v1";
@@ -228,6 +236,7 @@ function normalizeSessions(raw) {
       subtagId: e.subtagId,
       exerciseName: e.exerciseName,
       restSeconds: e.restSeconds || DEFAULT_REST,
+      ...(typeof e.bodyweight === "boolean" ? { bodyweight: e.bodyweight } : {}), // 맨몸 표시(선택). 없으면 운동 이름으로 자동 판단
       rounds: e.rounds && e.rounds.length ? e.rounds : [{ id: uid(), sets: e.sets || [{ weight: "", reps: "" }] }],
     })),
   })).filter(s => s.date);
@@ -243,6 +252,9 @@ function loadCustomExercises() {
 function saveCustomExercises(m) { try { localStorage.setItem(CUSTOM_EX_KEY, JSON.stringify(m)); } catch {} }
 function loadLang() {
   try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "ko"; } catch { return "ko"; }
+}
+function loadUiSize() {
+  try { return localStorage.getItem(UI_SIZE_KEY) === "large" ? "large" : "normal"; } catch { return "normal"; }
 }
 
 const GOAL_TYPES = [
@@ -368,25 +380,30 @@ function getExerciseHistory(sessions, exerciseName, excludeDate) {
 }
 
 function getProgressForExercise(sessions, exerciseName) {
-  return sessions
+  const pts = sessions
     .filter(s => s.entries.some(e => e.exerciseName === exerciseName))
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(s => {
       const e = s.entries.find(en => en.exerciseName === exerciseName);
-      const weights = e.rounds.flatMap(r => r.sets).map(st => parseFloat(st.weight)).filter(w => !isNaN(w));
-      const maxW = weights.length ? Math.max(...weights) : null;
-      return maxW !== null ? { date: s.date, weight: maxW } : null;
-    })
-    .filter(Boolean);
+      const sets = e.rounds.flatMap(r => r.sets);
+      const weights = sets.map(st => parseFloat(st.weight)).filter(w => !isNaN(w) && w > 0);
+      const reps = sets.map(st => parseFloat(st.reps)).filter(r => !isNaN(r) && r > 0);
+      return { date: s.date, maxW: weights.length ? Math.max(...weights) : null, maxReps: reps.length ? Math.max(...reps) : null };
+    });
+  // 무게 기록이 한 번이라도 있으면 무게 기준, 전부 맨몸이면 최대 렙스 기준으로 그래프를 그림
+  if (pts.some(p => p.maxW !== null)) {
+    return pts.filter(p => p.maxW !== null).map(p => ({ date: p.date, weight: p.maxW, unit: "kg" }));
+  }
+  return pts.filter(p => p.maxReps !== null).map(p => ({ date: p.date, weight: p.maxReps, unit: "reps" }));
 }
 
-// 지난 기록에서 가장 무거운 세트(무게가 같으면 렙이 많은 쪽) — "저번에 최대 몇 kg였지?"에 바로 답하기 위함
+// 지난 기록에서 가장 무거운 세트(무게가 같으면 렙이 많은 쪽). 무게를 비운 맨몸 세트는 0kg으로 계산
 function bestSetOf(rounds) {
   let best = null;
   for (const r of rounds || []) {
     for (const s of r.sets) {
-      const w = parseFloat(s.weight), rp = parseFloat(s.reps) || 0;
-      if (isNaN(w)) continue;
+      const w = parseFloat(s.weight) || 0, rp = parseFloat(s.reps) || 0;
+      if (w === 0 && rp === 0) continue;
       if (!best || w > best.w || (w === best.w && rp > best.reps)) best = { w, reps: rp };
     }
   }
@@ -399,8 +416,8 @@ function lastSetOf(rounds) {
   return flat.length ? flat[flat.length - 1] : null;
 }
 
-function formatRoundsCompact(rounds) {
-  return rounds.map(r => r.sets.map(s => `${s.weight || 0}×${s.reps || 0}`).join(", ")).join(" / ");
+function formatRoundsCompact(rounds, bwLabel = "BW") {
+  return rounds.map(r => r.sets.map(s => `${s.weight ? s.weight : bwLabel}×${s.reps || 0}`).join(", ")).join(" / ");
 }
 
 function totalSetsOf(entry) { return entry.rounds.reduce((sum, r) => sum + r.sets.length, 0); }
@@ -429,6 +446,9 @@ export default function WorkoutTracker() {
   const [cardioMinutes, setCardioMinutes] = useState("");
   const [cardioIncline, setCardioIncline] = useState("");
   const [cardioCalories, setCardioCalories] = useState("");
+  const [cardioDistance, setCardioDistance] = useState(""); // 수영 거리(m)
+  const [uiSize, setUiSize] = useState(() => loadUiSize());
+  const [openPanels, setOpenPanels] = useState({ time: false, weight: false, last: false }); // 오늘 탭 접이식 섹션
   const [showSuggest, setShowSuggest] = useState(false);
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
   const [goal, setGoal] = useState(() => loadGoal());
@@ -452,6 +472,11 @@ export default function WorkoutTracker() {
   const cardioLabel = c => {
     const parts = [cardioName(c.type), `${c.minutes} ${lang === "en" ? "min" : "분"}`];
     if (c.incline !== undefined && c.incline !== "" && c.incline !== null) parts.push(`${t("경사", "Incline")} ${c.incline}`);
+    if (c.distance) {
+      parts.push(`${c.distance} m`);
+      const paceSec = Math.round((Number(c.minutes) * 60) / (Number(c.distance) / 100)); // 100m당 페이스
+      if (isFinite(paceSec) && paceSec > 0) parts.push(`${formatSecs(paceSec)}/100m`);
+    }
     if (c.calories) parts.push(`${c.calories} kcal`);
     return parts.join(" · ");
   };
@@ -613,6 +638,20 @@ export default function WorkoutTracker() {
     persistSession({ entries: todaySession.entries.filter(e => e.id !== entryId) });
   }
 
+  // 맨몸 운동 표시 켜기/끄기 (이름으로 자동 판단이 틀릴 때 직접 바꿈)
+  function toggleBodyweight(entryId) {
+    persistSession({
+      entries: todaySession.entries.map(e => (e.id === entryId ? { ...e, bodyweight: !isBodyweightEntry(e) } : e)),
+    });
+  }
+
+  function changeUiSize(next) {
+    setUiSize(next);
+    try { localStorage.setItem(UI_SIZE_KEY, next); } catch {}
+  }
+
+  const togglePanel = key => setOpenPanels(p => ({ ...p, [key]: !p[key] }));
+
   // 지난번 무게를 빈 칸에만 채워줌 (렙스는 건드리지 않음 → 실제로 한 횟수만 직접 기록)
   function fillWeightsFromLast(entryId, history) {
     if (!history) return;
@@ -718,10 +757,12 @@ export default function WorkoutTracker() {
     if (!cardioMinutes || Number(cardioMinutes) <= 0) { showToast(t("운동 시간을 입력해주세요", "Enter the duration")); return; }
     const item = { id: uid(), type: cardioType, minutes: Number(cardioMinutes) };
     if (cardioType === "러닝머신" && cardioIncline !== "" && !isNaN(Number(cardioIncline))) item.incline = Number(cardioIncline);
+    if (cardioType === "수영" && cardioDistance !== "" && Number(cardioDistance) > 0) item.distance = Number(cardioDistance);
     if (cardioCalories !== "" && Number(cardioCalories) > 0) item.calories = Number(cardioCalories);
     persistSession({ cardio: [...todaySession.cardio, item] });
     setCardioMinutes("");
     setCardioIncline("");
+    setCardioDistance("");
     setCardioCalories("");
     showToast(t("유산소 기록 추가됐어요 🏃", "Cardio added 🏃"));
   }
@@ -908,6 +949,16 @@ ${summary}
   const setsWord = t("세트", "sets");
   const minWord = t("분", "min");
   const headingStyle = { fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e", marginBottom: 10 };
+  // 오늘 탭 접이식 섹션: 제목 줄만 보이고, 누르면 펼쳐짐 (화면을 단순하게 유지)
+  const renderPanel = (key, title, summary, content) => (
+    <div key={key} style={{ borderTop: key === "time" ? "none" : "1px solid #1e1e1e" }}>
+      <button onClick={() => togglePanel(key)} aria-expanded={!!openPanels[key]} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "none", border: "none", color: "#ccc", cursor: "pointer", padding: "14px 16px", textAlign: "left" }}>
+        <span style={{ fontSize: "0.85rem" }}>{title}</span>
+        <span style={{ fontSize: "0.76rem", color: "#c8a96e", whiteSpace: "nowrap" }}>{summary}{summary ? " " : ""}<span style={{ color: "#666" }}>{openPanels[key] ? "▴" : "▾"}</span></span>
+      </button>
+      {openPanels[key] && <div style={{ padding: "0 16px 16px" }}>{content}</div>}
+    </div>
+  );
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
@@ -949,14 +1000,15 @@ ${summary}
         .tab-btn.active { color: #c8a96e; border-bottom: 2px solid #c8a96e; }
         .chip { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.78rem; cursor: pointer; padding: 6px 12px; border-radius: 999px; transition: all 0.15s; }
         .chip.active { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; font-weight: 700; }
-        .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 4px; padding: 6px 8px; width: 100%; min-width: 0; text-align: center; font-size: 16px; }
+        .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 6px; padding: 10px 6px; min-height: 46px; width: 100%; min-width: 0; text-align: center; font-size: 19px; font-weight: 600; }
         .log-input:focus { outline: none; border-color: #c8a96e; }
-        .text-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 8px; padding: 10px 14px; width: 100%; min-width: 0; font-size: 16px; }
+        .text-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 8px; padding: 12px 14px; width: 100%; min-width: 0; font-size: 17px; }
         .text-input:focus { outline: none; border-color: #c8a96e; }
         .text-input::placeholder { color: #444; }
         .add-btn { background: #c8a96e; color: #0a0a0a; border: none; font-family: 'Bebas Neue'; font-size: 0.95rem; letter-spacing: 1px; padding: 10px 18px; border-radius: 6px; cursor: pointer; }
         .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .ghost-btn { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+        ${uiSize === "large" ? `html { font-size: 19px; } .log-input { font-size: 24px; min-height: 58px; } .text-input { font-size: 20px; padding: 14px 14px; } .chip { font-size: 0.85rem; padding: 9px 14px; } .ghost-btn { padding: 9px 14px; } .add-btn { padding: 12px 20px; }` : ""}
         .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #c8a96e; color: #0a0a0a; padding: 10px 24px; border-radius: 999px; font-size: 0.9rem; font-weight: 700; z-index: 999; max-width: 90vw; text-align: center; }
       `}</style>
 
@@ -991,57 +1043,62 @@ ${summary}
               <button onClick={dismissFeedback} aria-label={t("닫기", "Dismiss")} style={{ background: "none", border: "none", color: "#777", fontSize: "1rem", cursor: "pointer", padding: "0 2px" }}>✕</button>
             </div>
           )}
-          <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
-            <div style={{ flex: 1, minWidth: 0, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("시작 시간", "Start time")}</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input type="time" className="text-input" value={todaySession.startTime} onChange={e => persistSession({ startTime: e.target.value })} />
-                <button className="ghost-btn" onClick={() => persistSession({ startTime: nowHHMM() })}>{t("지금", "Now")}</button>
-              </div>
-            </div>
-            <div style={{ flex: 1, minWidth: 0, background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
-              <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("종료 시간", "End time")}</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input type="time" className="text-input" value={todaySession.endTime} onChange={e => persistSession({ endTime: e.target.value })} />
-                <button className="ghost-btn" onClick={() => persistSession({ endTime: nowHHMM() })}>{t("지금", "Now")}</button>
-              </div>
-            </div>
-          </div>
-          {todaySession.startTime && todaySession.endTime && (
-            <div style={{ fontSize: "0.75rem", color: "#888", marginBottom: 20 }}>{t("총", "Total")} {formatDuration(todaySession.startTime, todaySession.endTime, lang)}</div>
-          )}
-          {!(todaySession.startTime && todaySession.endTime) && <div style={{ marginBottom: 20 }} />}
-
-          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px", marginBottom: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-              <div style={{ fontSize: "0.7rem", color: "#666" }}>{t("⚖️ 오늘 체중", "⚖️ Today's weight")}</div>
-              {todayBody && <div style={{ fontSize: "0.72rem", color: "#c8a96e" }}>{t("기록됨", "Saved")}: {todayBody.weight}kg{todayBody.bodyFat ? ` · ${todayBody.bodyFat}%` : ""}{todayBody.muscle ? ` · ${todayBody.muscle}kg ${t("근육", "muscle")}` : ""}</div>}
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체중 kg", "Weight kg")} value={bodyWeightInput} onChange={e => setBodyWeightInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addBody(); }} />
-              <button className="add-btn" onClick={addBody} style={{ whiteSpace: "nowrap" }}>{todayBody ? t("수정", "Update") : t("저장", "Save")}</button>
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체지방률 %", "Body fat %")} value={bodyFatInput} onChange={e => setBodyFatInput(e.target.value)} />
-              <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("근육량 kg", "Muscle kg")} value={bodyMuscleInput} onChange={e => setBodyMuscleInput(e.target.value)} />
-            </div>
-            <div style={{ fontSize: "0.66rem", color: "#555", marginTop: 6 }}>{t("체지방·근육량은 인바디 등 결과가 있을 때만 넣으면 돼요.", "Body fat and muscle: only if you have a scan result.")}</div>
-          </div>
-
-          <div style={headingStyle}>{t("부위별 마지막 수행", "Last Trained")}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-            {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
-              <div key={g.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
-                <div style={{ fontSize: "0.78rem", color: "#999", marginBottom: 6 }}>{g.emoji} {gName(g)}</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {g.subtags.map(st => (
-                    <div key={st.id} style={{ fontSize: "0.72rem", color: "#f0ede6", background: "#1a1a1a", borderRadius: 6, padding: "4px 10px" }}>
-                      {stName(st)} <span style={{ color: "#c8a96e" }}>· {daysAgoLabel(lastDoneMap[st.id], lang)}</span>
+          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, marginBottom: 20, overflow: "hidden" }}>
+            {renderPanel("time", t("⏱ 운동 시간", "⏱ Workout time"),
+              todaySession.startTime && todaySession.endTime ? `${todaySession.startTime}–${todaySession.endTime}` : todaySession.startTime ? `${todaySession.startTime}~` : t("선택", "Optional"),
+              <div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("시작 시간", "Start time")}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="time" className="text-input" value={todaySession.startTime} onChange={e => persistSession({ startTime: e.target.value })} />
+                      <button className="ghost-btn" onClick={() => persistSession({ startTime: nowHHMM() })}>{t("지금", "Now")}</button>
                     </div>
-                  ))}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("종료 시간", "End time")}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="time" className="text-input" value={todaySession.endTime} onChange={e => persistSession({ endTime: e.target.value })} />
+                      <button className="ghost-btn" onClick={() => persistSession({ endTime: nowHHMM() })}>{t("지금", "Now")}</button>
+                    </div>
+                  </div>
                 </div>
+                {todaySession.startTime && todaySession.endTime && (
+                  <div style={{ fontSize: "0.75rem", color: "#888", marginTop: 8 }}>{t("총", "Total")} {formatDuration(todaySession.startTime, todaySession.endTime, lang)}</div>
+                )}
               </div>
-            ))}
+            )}
+            {renderPanel("weight", t("⚖️ 오늘 체중", "⚖️ Today's weight"),
+              todayBody ? `${todayBody.weight}kg ✓` : t("미기록", "Not logged"),
+              <div>
+                {todayBody && <div style={{ fontSize: "0.72rem", color: "#c8a96e", marginBottom: 8 }}>{t("기록됨", "Saved")}: {todayBody.weight}kg{todayBody.bodyFat ? ` · ${todayBody.bodyFat}%` : ""}{todayBody.muscle ? ` · ${todayBody.muscle}kg ${t("근육", "muscle")}` : ""}</div>}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체중 kg", "Weight kg")} value={bodyWeightInput} onChange={e => setBodyWeightInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addBody(); }} />
+                  <button className="add-btn" onClick={addBody} style={{ whiteSpace: "nowrap" }}>{todayBody ? t("수정", "Update") : t("저장", "Save")}</button>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("체지방률 %", "Body fat %")} value={bodyFatInput} onChange={e => setBodyFatInput(e.target.value)} />
+                  <input className="text-input" type="number" inputMode="decimal" step="0.1" placeholder={t("근육량 kg", "Muscle kg")} value={bodyMuscleInput} onChange={e => setBodyMuscleInput(e.target.value)} />
+                </div>
+                <div style={{ fontSize: "0.66rem", color: "#555", marginTop: 6 }}>{t("체지방·근육량은 인바디 등 결과가 있을 때만 넣으면 돼요.", "Body fat and muscle: only if you have a scan result.")}</div>
+              </div>
+            )}
+            {renderPanel("last", t("📅 부위별 마지막 수행", "📅 Last trained"), "",
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
+                  <div key={g.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: "0.78rem", color: "#999", marginBottom: 6 }}>{g.emoji} {gName(g)}</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {g.subtags.map(st => (
+                        <div key={st.id} style={{ fontSize: "0.72rem", color: "#f0ede6", background: "#1a1a1a", borderRadius: 6, padding: "4px 10px" }}>
+                          {stName(st)} <span style={{ color: "#c8a96e" }}>· {daysAgoLabel(lastDoneMap[st.id], lang)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={headingStyle}>{t("운동 추가", "Add Exercise")}</div>
@@ -1126,6 +1183,8 @@ ${summary}
               const group = MUSCLE_GROUPS.find(g => g.id === entry.groupId);
               const subtag = group?.subtags.find(st => st.id === entry.subtagId);
               const history = getExerciseHistory(sessions, entry.exerciseName, today);
+              const isBW = isBodyweightEntry(entry);
+              const bwWord = t("맨몸", "BW");
               const isCollapsed = collapsedIds.has(entry.id);
               return (
                 <div key={entry.id} id={`entry-${entry.id}`} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
@@ -1143,16 +1202,17 @@ ${summary}
                     <div style={{ marginTop: 10 }}>
                       {history ? (() => {
                         const best = bestSetOf(history.rounds);
-                        const canFill = entry.rounds.some(r => r.sets.some(s => s.weight === ""));
+                        const histHasWeight = history.rounds.some(r => r.sets.some(s => parseFloat(s.weight) > 0));
+                        const canFill = histHasWeight && entry.rounds.some(r => r.sets.some(s => s.weight === ""));
                         return (
                           <div style={{ background: "#171512", border: "1px solid #3a3224", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
                             <div style={{ fontSize: "0.68rem", color: "#c8a96e", marginBottom: 4 }}>
                               {t("📋 지난번", "📋 Last time")} · {formatDate(history.date, lang)} · {daysAgoLabel(history.date, lang)}
                             </div>
-                            <div style={{ fontSize: "0.82rem", color: "#f0ede6", lineHeight: 1.5, wordBreak: "break-word" }}>{formatRoundsCompact(history.rounds)}</div>
+                            <div style={{ fontSize: "0.82rem", color: "#f0ede6", lineHeight: 1.5, wordBreak: "break-word" }}>{formatRoundsCompact(history.rounds, bwWord)}</div>
                             {best && (
                               <div style={{ fontSize: "0.7rem", color: "#888", marginTop: 4 }}>
-                                {t("최고", "Best")}: {best.w}kg × {best.reps || "—"}
+                                {t("최고", "Best")}: {best.w > 0 ? `${isBW ? "+" : ""}${best.w}kg` : bwWord} × {best.reps || "—"}
                               </div>
                             )}
                             {canFill && (
@@ -1167,8 +1227,12 @@ ${summary}
                           {t("처음 하는 운동이에요 — 오늘 기록이 다음번 기준이 돼요.", "First time doing this — today's log becomes your baseline.")}
                         </div>
                       )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                        <button className={`chip${isBW ? " active" : ""}`} style={{ fontSize: "0.72rem", padding: "5px 10px" }} onClick={() => toggleBodyweight(entry.id)}>{isBW ? t("✓ 맨몸 운동", "✓ Bodyweight") : t("맨몸 운동?", "Bodyweight?")}</button>
+                        {isBW && <span style={{ fontSize: "0.68rem", color: "#888", lineHeight: 1.5, flex: 1, minWidth: 180 }}>{t("무게 칸을 비우면 내 체중으로 하는 운동이에요. 벨트 등 추가 무게가 있을 때만 적어요.", "Leave weight empty to use your own bodyweight. Only enter extra weight (e.g. a belt).")}</span>}
+                      </div>
                       <div style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("무게(kg)", "Weight (kg)")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("렙스", "Reps")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("지난번", "Last")}</div><div />
+                        <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{isBW ? t("추가 무게(kg)", "+Weight (kg)") : t("무게(kg)", "Weight (kg)")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("렙스", "Reps")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("지난번", "Last")}</div><div />
                       </div>
                       {entry.rounds.map((round, ri) => (
                         <div key={round.id} style={{ marginTop: ri > 0 ? 10 : 0, paddingTop: ri > 0 ? 8 : 0, borderTop: ri > 0 ? "1px dashed #2a2a2a" : "none" }}>
@@ -1184,9 +1248,9 @@ ${summary}
                             return (
                               <div key={si} style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                 <div style={{ fontSize: "0.66rem", color: "#555", textAlign: "center" }}>{si + 1}</div>
-                                <input className="log-input" type="number" inputMode="decimal" placeholder={hint?.weight ? String(hint.weight) : "—"} value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
+                                <input className="log-input" type="number" inputMode="decimal" placeholder={hint?.weight ? String(hint.weight) : isBW ? bwWord : "—"} value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
                                 <input className="log-input" type="number" inputMode="numeric" placeholder={hint?.reps ? String(hint.reps) : "—"} value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
-                                <div style={{ fontSize: "0.66rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || "—"}×${prev.reps || "—"}` : "—"}</div>
+                                <div style={{ fontSize: "0.66rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || (isBW ? bwWord : "—")}×${prev.reps || "—"}` : "—"}</div>
                                 <button onClick={() => removeSet(entry.id, ri, si)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.9rem" }}>×</button>
                               </div>
                             );
@@ -1198,7 +1262,7 @@ ${summary}
                         <button className="add-btn" style={{ fontSize: "0.78rem", padding: "7px 12px" }} onClick={() => addRound(entry.id)}>{t("🕐 휴식 시작 → 다음 라운드", "🕐 Start rest → Next round")}</button>
                         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span style={{ fontSize: "0.68rem", color: "#666" }}>{t("휴식", "Rest")}</span>
-                          <input className="log-input" style={{ width: 56 }} type="number" value={entry.restSeconds} onChange={e => updateRestSeconds(entry.id, e.target.value)} />
+                          <input className="log-input" style={{ width: uiSize === "large" ? 92 : 68 }} type="number" value={entry.restSeconds} onChange={e => updateRestSeconds(entry.id, e.target.value)} />
                           <span style={{ fontSize: "0.68rem", color: "#666" }}>{t("초", "sec")}</span>
                         </div>
                       </div>
@@ -1215,14 +1279,17 @@ ${summary}
               <button key={ct} className={`chip${cardioType === ct ? " active" : ""}`} onClick={() => setCardioType(ct)}>{cardioName(ct)}</button>
             ))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" ? "minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto" : "minmax(0,1fr) minmax(0,1fr) auto", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" || cardioType === "수영" ? "repeat(3, minmax(0,1fr))" : "repeat(2, minmax(0,1fr))", gap: 8, marginBottom: 8 }}>
             <input className="text-input" type="number" inputMode="numeric" placeholder={t("분", "min")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
             {cardioType === "러닝머신" && (
               <input className="text-input" type="number" inputMode="decimal" placeholder={t("경사", "Incline")} value={cardioIncline} onChange={e => setCardioIncline(e.target.value)} />
             )}
+            {cardioType === "수영" && (
+              <input className="text-input" type="number" inputMode="numeric" placeholder={t("거리", "Dist")} value={cardioDistance} onChange={e => setCardioDistance(e.target.value)} />
+            )}
             <input className="text-input" type="number" inputMode="numeric" placeholder="kcal" value={cardioCalories} onChange={e => setCardioCalories(e.target.value)} />
-            <button className="add-btn" style={{ flexShrink: 0 }} onClick={addCardio}>{t("추가", "ADD")}</button>
           </div>
+          <button className="add-btn" style={{ width: "100%", marginBottom: 12 }} onClick={addCardio}>{t("유산소 추가", "ADD CARDIO")}</button>
           {todaySession.cardio.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {todaySession.cardio.map(c => (
@@ -1263,7 +1330,7 @@ ${summary}
                   <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                     {s.entries.map(e => (
                       <div key={e.id} style={{ fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
-                        <strong>{exName(e.exerciseName)}</strong> — {formatRoundsCompact(e.rounds)}
+                        <strong>{exName(e.exerciseName)}</strong> — {formatRoundsCompact(e.rounds, t("맨몸", "BW"))}
                       </div>
                     ))}
                     {(s.cardio || []).map(c => (
@@ -1332,7 +1399,7 @@ ${summary}
           )}
 
           <div style={{ ...headingStyle, marginBottom: 12 }}>{t("운동별 진행", "Progress by Exercise")}</div>
-          {allExerciseNames.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem" }}>{t("기록을 쌓으면 여기서 무게 변화를 볼 수 있어요.", "Log a few sessions to see your weight progress here.")}</div>}
+          {allExerciseNames.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem" }}>{t("기록을 쌓으면 여기서 무게(맨몸 운동은 횟수) 변화를 볼 수 있어요.", "Log a few sessions to see weight (or reps for bodyweight moves) progress here.")}</div>}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
             {allExerciseNames.map(name => (
               <button key={name} className={`chip${progressExercise === name ? " active" : ""}`} onClick={() => setProgressExercise(name)}>{exName(name)}</button>
@@ -1344,13 +1411,14 @@ ${summary}
           {progressData.length >= 2 && (() => {
             const maxW = Math.max(...progressData.map(d => d.weight));
             const minW = Math.min(...progressData.map(d => d.weight));
-            const gain = (progressData[progressData.length - 1].weight - progressData[0].weight).toFixed(1);
+            const unit = progressData[0].unit === "reps" ? t("회", " reps") : "kg";
+            const gain = (progressData[progressData.length - 1].weight - progressData[0].weight).toFixed(progressData[0].unit === "reps" ? 0 : 1);
             return (
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontSize: "0.85rem", color: "#999" }}>{t(`${progressData.length}회 기록 · 현재 ${progressData[progressData.length - 1].weight}kg`, `${progressData.length} sessions · now ${progressData[progressData.length - 1].weight}kg`)}</div>
+                  <div style={{ fontSize: "0.85rem", color: "#999" }}>{t(`${progressData.length}회 기록 · 현재 ${progressData[progressData.length - 1].weight}${unit}`, `${progressData.length} sessions · now ${progressData[progressData.length - 1].weight}${unit}`)}</div>
                   <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.1rem", color: parseFloat(gain) >= 0 ? "#6ec87a" : "#c86e6e" }}>
-                    {parseFloat(gain) >= 0 ? "+" : ""}{gain}kg
+                    {parseFloat(gain) >= 0 ? "+" : ""}{gain}{unit}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 90 }}>
@@ -1444,6 +1512,13 @@ ${summary}
           <div style={{ display: "flex", gap: 6, marginBottom: 24 }}>
             <button className={`chip${lang === "ko" ? " active" : ""}`} onClick={() => changeLang("ko")}>한국어</button>
             <button className={`chip${lang === "en" ? " active" : ""}`} onClick={() => changeLang("en")}>English</button>
+          </div>
+
+          <div style={{ ...headingStyle, marginBottom: 6 }}>{t("글자 크기", "Text size")}</div>
+          <div style={{ fontSize: "0.8rem", color: "#888", lineHeight: 1.7, marginBottom: 10 }}>{t("글씨와 입력칸이 작게 느껴지면 '크게'를 선택하세요.", "Choose Large if text and input boxes feel small.")}</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 24 }}>
+            <button className={`chip${uiSize === "normal" ? " active" : ""}`} onClick={() => changeUiSize("normal")}>{t("보통", "Normal")}</button>
+            <button className={`chip${uiSize === "large" ? " active" : ""}`} onClick={() => changeUiSize("large")}>{t("크게", "Large")}</button>
           </div>
 
           <div style={{ ...headingStyle, marginBottom: 6 }}>{t("기록 백업", "Data Backup")}</div>
