@@ -206,6 +206,100 @@ function isBodyweightEntry(entry) {
 }
 const UI_SIZE_KEY = "forge_ui_size_v1"; // "normal" | "large" — 글자/입력칸 크기
 
+// 타겟 부위 그림: public/body-front.webp, body-back.webp 위에 얹는 빨간 영역(SVG 경로, 좌표계 1024x1536)
+const BODY_MAP = {
+  chest_upper: {
+    front: "M372 346 L374 349 L649 348 L648 343 L635 327 L617 313 L596 301 L534 301 L526 305 L523 301 L497 301 L494 304 L488 301 L425 301 L390 324 L380 334Z",
+    ctx_front: "M366 365 L369 373 L367 380 L371 388 L377 391 L378 398 L391 413 L413 426 L441 429 L448 423 L453 428 L468 426 L475 421 L473 414 L482 410 L495 416 L499 415 L496 420 L497 423 L507 429 L515 429 L526 422 L522 416 L528 415 L534 408 L539 413 L537 421 L542 424 L578 429 L609 426 L615 423 L618 417 L621 419 L628 415 L640 403 L651 387 L651 380 L655 377 L656 367 L651 349 L641 333 L617 313 L596 301 L534 301 L526 305 L523 301 L497 301 L494 304 L488 301 L425 301 L400 316 L380 334 L371 348Z",
+  },
+  chest_mid: {
+    front: "M366 365 L369 373 L367 380 L373 389 L512 389 L515 385 L518 389 L648 389 L651 387 L651 380 L655 377 L656 367 L653 354 L648 346 L374 346 L371 348Z",
+    ctx_front: "M366 365 L369 373 L367 380 L371 388 L377 391 L378 398 L391 413 L413 426 L441 429 L448 423 L453 428 L468 426 L475 421 L473 414 L482 410 L495 416 L499 415 L496 420 L497 423 L507 429 L515 429 L526 422 L522 416 L528 415 L534 408 L539 413 L537 421 L542 424 L578 429 L609 426 L615 423 L618 417 L621 419 L628 415 L640 403 L651 387 L651 380 L655 377 L656 367 L651 349 L641 333 L617 313 L596 301 L534 301 L526 305 L523 301 L497 301 L494 304 L488 301 L425 301 L400 316 L380 334 L371 348Z",
+  },
+  chest_lower: {
+    front: "M372 387 L373 390 L377 391 L377 396 L385 407 L396 417 L413 426 L441 429 L448 423 L453 428 L468 426 L475 421 L473 414 L482 410 L495 416 L499 415 L496 420 L497 423 L507 429 L515 429 L526 422 L522 416 L528 415 L534 408 L539 413 L537 421 L542 424 L578 429 L600 428 L615 423 L618 417 L621 419 L628 415 L640 403 L649 390 L647 386Z",
+    ctx_front: "M366 365 L369 373 L367 380 L371 388 L377 391 L378 398 L391 413 L413 426 L441 429 L448 423 L453 428 L468 426 L475 421 L473 414 L482 410 L495 416 L499 415 L496 420 L497 423 L507 429 L515 429 L526 422 L522 416 L528 415 L534 408 L539 413 L537 421 L542 424 L578 429 L609 426 L615 423 L618 417 L621 419 L628 415 L640 403 L651 387 L651 380 L655 377 L656 367 L651 349 L641 333 L617 313 L596 301 L534 301 L526 305 L523 301 L497 301 L494 304 L488 301 L425 301 L400 316 L380 334 L371 348Z",
+  },
+  back_lat: {
+    back: "M645 397 L619 405 L600 405 L576 399 L568 400 L547 417 L537 430 L527 449 L520 473 L521 484 L542 528 L553 557 L558 579 L561 581 L565 578 L575 558 L592 535 L633 465 L645 435 L650 413 L650 403ZM379 396 L373 400 L372 411 L380 443 L387 460 L432 537 L445 554 L458 578 L462 581 L465 579 L470 556 L480 529 L501 486 L502 471 L495 448 L478 420 L464 406 L454 400 L446 399 L422 405 L404 405Z",
+  },
+  back_row: {
+    back: "M529 169 L522 170 L517 177 L516 193 L519 217 L532 244 L549 259 L533 264 L524 273 L516 301 L514 476 L517 478 L520 476 L526 452 L543 405 L557 350 L575 307 L590 291 L613 281 L626 278 L635 273 L639 268 L638 263 L634 259 L574 223 L555 203 L540 176ZM494 169 L481 178 L466 205 L452 220 L432 234 L391 257 L384 263 L384 270 L392 276 L412 282 L434 292 L446 305 L459 332 L470 366 L478 401 L495 447 L502 474 L505 476 L508 474 L508 330 L506 299 L499 274 L490 264 L474 259 L480 255 L493 240 L504 213 L506 198 L505 175 L501 170ZM598 311 L591 316 L584 331 L573 384 L573 395 L578 399 L584 397 L586 400 L594 403 L611 404 L634 395 L644 387 L654 373 L655 362 L651 359 L643 358 L648 354 L647 349 L627 327 L613 317ZM424 311 L411 316 L392 330 L375 349 L375 355 L377 357 L367 362 L367 370 L370 377 L385 393 L400 401 L411 404 L428 403 L436 400 L438 396 L444 399 L449 395 L448 376 L438 330 L433 318ZM612 298 L612 304 L619 307 L627 322 L642 337 L657 347 L705 371 L710 369 L710 356 L701 333 L687 313 L676 303 L661 294 L644 289 L629 290ZM408 297 L397 291 L379 289 L366 292 L345 304 L331 318 L323 330 L312 356 L311 370 L315 373 L329 364 L360 350 L377 339 L398 318 L406 305Z",
+  },
+  legs_quad: {
+    front: "M601 657 L598 658 L594 664 L577 726 L575 690 L571 688 L566 694 L552 736 L542 790 L541 840 L543 848 L546 850 L549 848 L550 852 L541 901 L541 934 L546 950 L546 957 L565 971 L566 975 L558 979 L558 982 L565 988 L575 979 L576 972 L587 965 L592 956 L594 945 L591 914 L579 877 L583 879 L589 891 L598 897 L605 895 L612 883 L612 902 L616 918 L620 923 L631 926 L642 919 L652 902 L659 880 L662 859 L664 812 L658 765 L650 742 L615 686 L612 684 L608 685 L605 663ZM421 657 L417 662 L414 682 L408 684 L383 722 L371 744 L366 758 L358 803 L358 848 L363 885 L372 908 L370 915 L374 918 L377 916 L391 928 L396 927 L402 929 L408 924 L409 885 L411 885 L415 894 L423 897 L433 890 L440 877 L443 876 L430 917 L428 949 L429 958 L434 963 L432 969 L436 972 L443 971 L443 976 L438 979 L438 983 L445 991 L453 985 L455 981 L458 982 L461 980 L464 970 L468 972 L471 970 L471 962 L475 959 L475 952 L480 938 L481 903 L472 848 L478 848 L481 839 L480 794 L472 746 L456 694 L452 688 L447 689 L445 729 L426 660Z",
+  },
+  legs_ham: {
+    back: "M567 640 L551 650 L539 662 L527 679 L516 705 L515 722 L524 744 L543 765 L568 778 L592 780 L606 775 L616 765 L621 747 L620 726 L612 697 L596 663 L580 644 L572 640ZM453 640 L444 643 L435 652 L423 670 L411 696 L402 729 L402 751 L407 765 L416 775 L430 780 L455 778 L477 767 L497 747 L507 726 L507 707 L505 699 L492 673 L474 652 L465 645ZM563 800 L558 807 L550 838 L548 892 L553 916 L564 943 L573 952 L580 949 L591 923 L594 894 L600 914 L616 941 L622 947 L627 948 L631 945 L635 935 L638 950 L642 953 L644 952 L655 921 L660 893 L659 864 L654 843 L648 830 L641 821 L628 810 L624 812 L623 818 L616 804 L602 795 L596 796 L588 802 L585 827 L575 802 L570 799ZM460 800 L454 798 L446 804 L438 826 L434 801 L422 795 L409 801 L400 816 L399 811 L396 809 L390 812 L375 829 L364 860 L363 898 L369 927 L378 953 L380 954 L386 949 L387 928 L390 942 L394 947 L399 948 L407 941 L420 918 L428 896 L431 920 L442 948 L450 952 L460 940 L470 916 L475 881 L474 850 L471 830 L465 809Z",
+  },
+  shoulders_all: {
+    front: "M633 286 L628 293 L629 306 L638 327 L656 354 L681 378 L688 382 L695 391 L701 393 L705 387 L710 396 L715 396 L721 388 L728 372 L731 344 L726 326 L713 304 L693 285 L672 277 L663 277 L660 279 L664 288 L654 284 L638 284ZM394 286 L386 283 L371 283 L359 287 L358 286 L363 282 L363 278 L360 276 L349 277 L327 286 L310 302 L300 317 L291 340 L291 363 L293 372 L306 396 L312 396 L316 389 L321 392 L328 389 L367 352 L394 308 L398 297 L398 291Z",
+    back: "M612 298 L612 304 L619 307 L627 322 L642 337 L657 347 L705 371 L710 369 L711 356 L720 366 L726 363 L731 344 L729 321 L715 298 L695 281 L680 275 L665 275 L659 279 L659 287 L663 295 L649 290 L634 289 L620 293ZM408 297 L400 292 L388 289 L374 290 L360 295 L364 287 L364 279 L358 275 L342 275 L329 280 L308 297 L293 321 L291 349 L296 363 L302 367 L311 357 L311 370 L315 373 L329 364 L360 350 L377 339 L395 322 L404 309Z",
+  },
+  arms_biceps: {
+    front: "M667 382 L660 388 L656 405 L657 428 L660 436 L658 440 L662 443 L657 453 L662 471 L671 491 L680 505 L694 518 L707 524 L723 523 L727 520 L726 515 L733 512 L738 494 L737 470 L730 444 L715 413 L698 394 L679 383 L673 381ZM354 381 L338 385 L321 396 L304 417 L294 438 L284 474 L284 499 L288 512 L292 518 L300 524 L313 524 L330 516 L342 504 L349 493 L361 467 L366 446 L364 439 L367 436 L368 429 L366 419 L368 417 L367 400 L363 388Z",
+  },
+  arms_triceps: {
+    back: "M678 369 L674 372 L672 380 L668 378 L664 381 L661 389 L659 403 L660 431 L665 452 L678 474 L690 483 L694 477 L696 441 L693 435 L715 445 L725 453 L734 457 L737 455 L735 448 L737 442 L737 427 L731 408 L714 387 L702 378 L688 371ZM345 369 L330 373 L308 387 L292 406 L285 428 L285 447 L293 453 L329 435 L326 440 L329 482 L332 484 L347 471 L355 457 L363 425 L363 398 L360 383 L354 377 L350 380 L349 373Z",
+  },
+  abs: {
+    front: "M486 424 L452 430 L441 437 L439 443 L440 459 L450 468 L449 471 L453 474 L450 476 L437 467 L434 469 L437 504 L434 510 L437 520 L438 544 L437 545 L426 532 L421 533 L433 567 L429 565 L406 538 L400 538 L398 540 L392 576 L392 595 L396 608 L423 632 L420 635 L422 641 L467 692 L481 717 L493 746 L503 754 L517 755 L524 751 L531 742 L542 714 L554 693 L599 640 L595 635 L625 609 L629 598 L630 582 L624 541 L620 536 L617 537 L601 553 L591 567 L589 567 L600 534 L595 533 L588 542 L584 544 L584 529 L587 508 L584 506 L586 501 L587 469 L584 467 L572 476 L568 474 L573 471 L573 468 L580 463 L583 448 L580 436 L570 430 L536 424 L523 424 L515 431 L513 445 L515 457 L519 463 L522 464 L526 461 L541 462 L560 467 L564 473 L535 465 L519 467 L514 472 L511 481 L507 471 L496 465 L476 467 L457 473 L458 468 L477 463 L495 461 L501 464 L504 462 L504 456 L508 447 L506 430 L499 424Z",
+  },
+  calves: {
+    back: "M637 1026 L634 1027 L631 1032 L621 1070 L618 1090 L613 1070 L601 1049 L594 1042 L590 1041 L585 1045 L582 1052 L569 1105 L568 1138 L571 1158 L578 1173 L586 1182 L593 1185 L601 1183 L607 1176 L615 1156 L619 1137 L621 1138 L623 1150 L631 1167 L645 1183 L649 1185 L658 1183 L662 1179 L667 1167 L670 1149 L670 1114 L667 1093 L660 1068 L643 1032ZM386 1025 L381 1029 L370 1050 L355 1096 L352 1118 L352 1145 L356 1169 L364 1183 L368 1185 L378 1183 L387 1174 L394 1163 L403 1135 L409 1161 L416 1177 L420 1182 L429 1185 L436 1182 L446 1171 L452 1157 L455 1136 L454 1107 L439 1046 L432 1040 L424 1046 L412 1065 L405 1088 L391 1031Z",
+  },
+  traps: {
+    back: "M529 169 L522 170 L517 177 L516 193 L519 217 L532 244 L549 259 L533 264 L524 273 L516 301 L514 476 L517 478 L520 476 L526 452 L543 405 L557 350 L575 307 L590 291 L613 281 L626 278 L635 273 L639 268 L638 263 L634 259 L574 223 L555 203 L540 176ZM494 169 L481 178 L466 205 L452 220 L432 234 L391 257 L384 263 L384 270 L392 276 L412 282 L434 292 L446 305 L459 332 L470 366 L478 401 L495 447 L502 474 L505 476 L508 474 L508 330 L506 299 L499 274 L490 264 L474 259 L480 255 L493 240 L504 213 L506 198 L505 175 L501 170Z",
+  },
+};
+
+// '자유/보충'처럼 부위가 정해지지 않은 운동은 이름으로 직접 지정
+const EXERCISE_BODY_OVERRIDE = {
+  "케이블 크런치": "abs", "앱 크런치 머신": "abs", "행잉 레그레이즈": "abs", "크런치": "abs", "레그레이즈": "abs", "싯업": "abs",
+  "카프 레이즈 머신": "calves", "덤벨 슈러그": "traps",
+};
+// 어떤 부위 그림을 보여줄지: 운동 이름이 프리셋에 있으면 그 부위 기준(직접 타이핑해서 엉뚱한 부위로 저장된 기록도 올바르게 보임), 아니면 저장된 부위
+function bodyKeyForEntry(entry) {
+  if (EXERCISE_BODY_OVERRIDE[entry.exerciseName]) return EXERCISE_BODY_OVERRIDE[entry.exerciseName];
+  const subs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(entry.exerciseName));
+  if (subs.length === 0 || subs.includes(entry.subtagId)) return entry.subtagId;
+  return subs[0];
+}
+// 유튜브 검색 링크 (검색어를 인코딩해서 연결만 함 — API 키/비용 없음)
+function youtubeSearchUrl(exerciseName, lang) {
+  const q = lang === "en" ? `${EX_EN[exerciseName] || exerciseName} proper form` : `${exerciseName} 자세`;
+  return "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
+}
+
+// 앞/뒤 인체 그림 위에 타겟 부위를 빨갛게 표시. 그림 파일이 없으면 안내 문구만 보여주고 앱은 정상 동작
+function BodyDiagram({ bodyKey, lang }) {
+  const [failed, setFailed] = useState(false);
+  const m = BODY_MAP[bodyKey];
+  if (!m) return null;
+  const en = lang === "en";
+  if (failed) return <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 10 }}>{en ? "Diagram unavailable." : "그림을 불러오지 못했어요."}</div>;
+  const views = [["front", en ? "Front" : "앞", "/body-front.webp"], ["back", en ? "Back" : "뒤", "/body-back.webp"]];
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+        {views.map(([v, label, src]) => (
+          <div key={v} style={{ flex: 1, maxWidth: 150, minWidth: 0 }}>
+            <div style={{ position: "relative", width: "100%", paddingBottom: "150%", background: "#fff", borderRadius: 8, overflow: "hidden" }}>
+              <img src={src} alt="" onError={() => setFailed(true)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />
+              <svg viewBox="0 0 1024 1536" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                {m["ctx_" + v] && <path d={m["ctx_" + v]} fill="#e23b3b" fillOpacity="0.25" />}
+                {m[v] && <path d={m[v]} fill="#e23b3b" fillOpacity="0.72" />}
+              </svg>
+            </div>
+            <div style={{ fontSize: "0.62rem", color: "#666", textAlign: "center", marginTop: 3 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: "0.66rem", color: "#888", textAlign: "center", marginTop: 4 }}>{en ? "Red = main target muscles" : "빨간 부분 = 주로 자극되는 근육"}</div>
+    </div>
+  );
+}
+
 const STORAGE_KEY = "forge_sessions_v3";
 const CUSTOM_EX_KEY = "forge_custom_exercises_v1";
 const LANG_KEY = "forge_lang_v1";
@@ -448,6 +542,7 @@ export default function WorkoutTracker() {
   const [cardioCalories, setCardioCalories] = useState("");
   const [cardioDistance, setCardioDistance] = useState(""); // 수영 거리(m)
   const [uiSize, setUiSize] = useState(() => loadUiSize());
+  const [diagramIds, setDiagramIds] = useState(() => new Set()); // 타겟 부위 그림을 펼친 운동 카드
   const [openPanels, setOpenPanels] = useState({ time: false, weight: false, last: false }); // 오늘 탭 접이식 섹션
   const [showSuggest, setShowSuggest] = useState(false);
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
@@ -619,11 +714,16 @@ export default function WorkoutTracker() {
 
   function addEntry() {
     if (!exerciseInput.trim()) { showToast(t("운동 이름을 입력해주세요", "Enter an exercise name")); return; }
+    const canon = canonicalName(exerciseInput);
+    // 직접 타이핑한 이름이 프리셋 운동이면 그 운동의 원래 부위로 저장 (예: 가슴 탭에서 '풀업'을 쳐도 등으로 기록)
+    const presetSubs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(canon));
+    const subtagId = presetSubs.length === 0 || presetSubs.includes(selectedSubtagId) ? selectedSubtagId : presetSubs[0];
+    const groupId = (MUSCLE_GROUPS.find(g => g.subtags.some(st => st.id === subtagId)) || { id: selectedGroupId }).id;
     const entry = {
       id: uid(),
-      groupId: selectedGroupId,
-      subtagId: selectedSubtagId,
-      exerciseName: canonicalName(exerciseInput), // 영어로 입력/선택해도 한글 이름으로 저장 → 기록이 갈라지지 않음
+      groupId,
+      subtagId,
+      exerciseName: canon, // 영어로 입력/선택해도 한글 이름으로 저장 → 기록이 갈라지지 않음
       restSeconds: DEFAULT_REST,
       rounds: [{ id: uid(), sets: [{ weight: "", reps: "" }] }],
     };
@@ -650,6 +750,7 @@ export default function WorkoutTracker() {
     try { localStorage.setItem(UI_SIZE_KEY, next); } catch {}
   }
 
+  const toggleDiagram = id => setDiagramIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const togglePanel = key => setOpenPanels(p => ({ ...p, [key]: !p[key] }));
 
   // 지난번 무게를 빈 칸에만 채워줌 (렙스는 건드리지 않음 → 실제로 한 횟수만 직접 기록)
@@ -1184,6 +1285,7 @@ ${summary}
               const subtag = group?.subtags.find(st => st.id === entry.subtagId);
               const history = getExerciseHistory(sessions, entry.exerciseName, today);
               const isBW = isBodyweightEntry(entry);
+              const bodyKey = bodyKeyForEntry(entry);
               const bwWord = t("맨몸", "BW");
               const isCollapsed = collapsedIds.has(entry.id);
               return (
@@ -1200,6 +1302,17 @@ ${summary}
 
                   {!isCollapsed && (
                     <div style={{ marginTop: 10 }}>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                        {BODY_MAP[bodyKey] && (
+                          <button className="ghost-btn" style={{ fontSize: "0.78rem", padding: "7px 12px", color: diagramIds.has(entry.id) ? "#c8a96e" : "#aaa", borderColor: diagramIds.has(entry.id) ? "#c8a96e" : "#2a2a2a" }} onClick={() => toggleDiagram(entry.id)}>
+                            {t("🎯 타겟 부위", "🎯 Target muscles")} {diagramIds.has(entry.id) ? "▴" : "▾"}
+                          </button>
+                        )}
+                        <a className="ghost-btn" href={youtubeSearchUrl(entry.exerciseName, lang)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.78rem", padding: "7px 12px", color: "#aaa", textDecoration: "none", display: "inline-block" }}>
+                          {t("▶ 동작 영상 보기", "▶ How-to video")}
+                        </a>
+                      </div>
+                      {BODY_MAP[bodyKey] && diagramIds.has(entry.id) && <BodyDiagram bodyKey={bodyKey} lang={lang} />}
                       {history ? (() => {
                         const best = bestSetOf(history.rounds);
                         const histHasWeight = history.rounds.some(r => r.sets.some(s => parseFloat(s.weight) > 0));
