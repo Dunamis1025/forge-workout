@@ -581,7 +581,10 @@ export default function WorkoutTracker() {
   const [aiProgram, setAiProgram] = useState(null); // { summary, caution, exercises:[{name,sets,restSeconds}] }
   const [aiOff, setAiOff] = useState(false); // 서버에 AI 키가 아직 없을 때
   const [aiError, setAiError] = useState("");
-  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
+  const [openEntryId, setOpenEntryId] = useState(null); // null = 자동(아직 안 끝낸 운동), "none" = 모두 접음, 그 외 = 그 운동만 펼침
+  const [pickerOpen, setPickerOpen] = useState(false); // 운동 고르는 전체 화면
+  const [pickerGroup, setPickerGroup] = useState(null); // null = 부위 고르기 화면, 그 외 = 그 부위의 운동 목록
+  const [moreOpen, setMoreOpen] = useState(false); // 운동 탭 "더보기"
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
@@ -592,7 +595,6 @@ export default function WorkoutTracker() {
   const [routines, setRoutines] = useState(() => loadRoutines());
   const [diagramIds, setDiagramIds] = useState(() => new Set()); // 타겟 부위 그림을 펼친 운동 카드
   const [openPanels, setOpenPanels] = useState({ time: false, weight: false, last: false }); // 오늘 탭 접이식 섹션
-  const [showSuggest, setShowSuggest] = useState(false);
   const [homeRoutineId, setHomeRoutineId] = useState(null); // 홈 큰 카드에 보이는 루틴
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
   const [goal, setGoal] = useState(() => loadGoal());
@@ -607,7 +609,6 @@ export default function WorkoutTracker() {
   const audioCtxRef = useRef(null);
   const importInputRef = useRef(null);
   const exerciseInputRef = useRef(null);
-  const pickerRef = useRef(null);
   const swipeStartX = useRef(null);
   const recogRef = useRef(null);
   const [listening, setListening] = useState(false);
@@ -636,14 +637,6 @@ export default function WorkoutTracker() {
     if (c.calories) parts.push(`${c.calories} kcal`);
     return parts.join(" · ");
   };
-  function pickSuggestion(item) {
-    setSelectedGroupId(item.groupId);
-    setSelectedSubtagId(item.subtagId);
-    setExerciseInput(exName(item.name));
-    setShowAllPresets(false);
-    setShowSuggest(false);
-  }
-
   function changeLang(next) {
     setLang(next);
     setExerciseInput("");
@@ -657,12 +650,6 @@ export default function WorkoutTracker() {
   function finishOnboarding() {
     setOnboardStep(null);
     try { localStorage.setItem(ONBOARD_KEY, "1"); } catch {}
-  }
-
-  // "＋ 다른 운동 추가": 운동 고르는 곳으로 올라가서 검색창에 커서를 둠
-  function scrollToPicker() {
-    if (pickerRef.current) pickerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    setTimeout(() => { if (exerciseInputRef.current) exerciseInputRef.current.focus({ preventScroll: true }); }, 350);
   }
 
   function unlockAudio() {
@@ -759,8 +746,13 @@ export default function WorkoutTracker() {
   function dismissRest() { setRestTimer(null); }
   function adjustRest(delta) { setRestTimer(rt => (rt ? { ...rt, endAt: rt.endAt + delta * 1000 } : rt)); }
 
-  function toggleCollapse(id) {
-    setCollapsedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  function openPicker(gid) {
+    if (gid) { selectGroup(gid); setPickerGroup(gid); } else { setPickerGroup(null); setExerciseInput(""); }
+    setTab("today");
+    setPickerOpen(true);
+  }
+  function closePicker() {
+    setPickerOpen(false);
   }
 
   function selectGroup(gid) {
@@ -771,12 +763,8 @@ export default function WorkoutTracker() {
     setShowAllPresets(false);
   }
 
-  // 홈 → '오늘' 탭의 운동 고르는 곳으로 (부위를 눌렀다면 그 부위를 미리 선택)
-  function goPick(gid) {
-    if (gid) selectGroup(gid);
-    setTab("today");
-    setTimeout(scrollToPicker, 150);
-  }
+  // 홈 → 운동 고르는 화면으로 (부위를 눌렀다면 그 부위의 목록부터)
+  function goPick(gid) { openPicker(gid); }
   function routineLastDate(r) {
     const names = new Set(r.exercises.map(x => x.exerciseName));
     const dates = sessions.filter(se => se.entries.some(e => names.has(e.exerciseName))).map(se => se.date).sort();
@@ -800,12 +788,16 @@ export default function WorkoutTracker() {
     saveCustomExercises(next);
   }
 
-  function addEntry() {
-    if (!exerciseInput.trim()) { showToast(t("운동 이름을 입력해주세요", "Enter an exercise name")); return; }
-    const canon = canonicalName(exerciseInput);
+  // addEntry()            = 입력칸의 이름으로 추가
+  // addEntry("벤치", "id")  = 목록에서 이름을 직접 눌렀을 때
+  function addEntry(nameArg, subArg) {
+    const rawName = typeof nameArg === "string" ? nameArg : exerciseInput;
+    const subPicked = typeof subArg === "string" ? subArg : selectedSubtagId;
+    if (!rawName.trim()) { showToast(t("운동 이름을 입력해주세요", "Enter an exercise name")); return; }
+    const canon = canonicalName(rawName);
     // 직접 타이핑한 이름이 프리셋 운동이면 그 운동의 원래 부위로 저장 (예: 가슴 탭에서 '풀업'을 쳐도 등으로 기록)
     const presetSubs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(canon));
-    const subtagId = presetSubs.length === 0 || presetSubs.includes(selectedSubtagId) ? selectedSubtagId : presetSubs[0];
+    const subtagId = presetSubs.length === 0 || presetSubs.includes(subPicked) ? subPicked : presetSubs[0];
     const groupId = (MUSCLE_GROUPS.find(g => g.subtags.some(st => st.id === subtagId)) || { id: selectedGroupId }).id;
     const entry = {
       id: uid(),
@@ -817,7 +809,8 @@ export default function WorkoutTracker() {
     };
     persistSession({ entries: [...todaySession.entries, entry] });
     setExerciseInput("");
-    setShowSuggest(false);
+    setOpenEntryId(entry.id); // 방금 추가한 운동을 펼침
+    setPickerOpen(false);
     setJustAddedId(entry.id);
     showToast(t("추가됐어요 💪", "Added 💪"));
   }
@@ -1257,7 +1250,6 @@ export default function WorkoutTracker() {
 
   const allExerciseNames = getAllExerciseNames(sessions);
   const pastSessions = [...sessions].filter(s => s.entries.length > 0 || (s.cardio && s.cardio.length > 0)).sort((a, b) => b.date.localeCompare(a.date));
-  const selectedGroup = MUSCLE_GROUPS.find(g => g.id === selectedGroupId);
   const progressData = progressExercise ? getProgressForExercise(sessions, progressExercise) : [];
   const setsWord = t("세트", "sets");
   const minWord = t("분", "min");
@@ -1274,7 +1266,7 @@ export default function WorkoutTracker() {
   );
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", color: "#f0ede6", paddingBottom: restTimer ? 80 : 0 }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: "#0a0a0a", minHeight: "100vh", width: "100%", maxWidth: "100vw", overflowX: "hidden", color: "#f0ede6", paddingBottom: `calc(${restTimer ? 140 : 76}px + env(safe-area-inset-bottom))` }}>
       {splashPhase !== "hidden" && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 9999,
@@ -1309,22 +1301,20 @@ export default function WorkoutTracker() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { width: 100%; max-width: 100%; overflow-x: hidden; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; }
         input, textarea { font-family: inherit; }
-        .tab-btn { background: none; border: none; color: #888; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; padding: 10px 12px; border-bottom: 2px solid transparent; white-space: nowrap; }
-        .tab-btn.active { color: #c8a96e; border-bottom: 2px solid #c8a96e; }
         .chip { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.78rem; cursor: pointer; padding: 6px 12px; border-radius: 999px; transition: all 0.15s; }
         .chip.active { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; font-weight: 700; }
-        .log-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 6px; padding: 10px 6px; min-height: 46px; width: 100%; min-width: 0; text-align: center; font-size: 19px; font-weight: 600; }
+        .log-input { background: #0d0d0d; border: 1px solid #262626; color: #f0ede6; border-radius: 14px; padding: 10px 6px; min-height: 52px; width: 100%; min-width: 0; text-align: center; font-size: 19px; font-weight: 600; }
         .log-input:focus { outline: none; border-color: #c8a96e; }
         .text-input { background: #1a1a1a; border: 1px solid #2a2a2a; color: #f0ede6; border-radius: 8px; padding: 12px 14px; width: 100%; min-width: 0; font-size: 17px; }
         .text-input:focus { outline: none; border-color: #c8a96e; }
         .text-input::placeholder { color: #444; }
         .add-btn { background: #c8a96e; color: #0a0a0a; border: none; font-family: 'Bebas Neue'; font-size: 0.95rem; letter-spacing: 1px; padding: 10px 18px; border-radius: 6px; cursor: pointer; }
-        .done-btn { width: 100%; min-height: 46px; border-radius: 6px; border: 1px solid #3a3226; background: #1a1a1a; color: #6b6150; font-size: 1.35rem; font-weight: 700; cursor: pointer; padding: 0; }
+        .done-btn { width: 100%; min-height: 52px; border-radius: 14px; border: 1px solid #3a3226; background: #1a1a1a; color: #6b6150; font-size: 1.35rem; font-weight: 700; cursor: pointer; padding: 0; }
         .done-btn.on { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; }
         .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .ghost-btn { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
         ${uiSize === "large" ? `html { font-size: 19px; } .log-input { font-size: 24px; min-height: 58px; } .done-btn { min-height: 58px; font-size: 1.6rem; } .text-input { font-size: 20px; padding: 14px 14px; } .chip { font-size: 0.85rem; padding: 9px 14px; } .ghost-btn { padding: 9px 14px; } .add-btn { padding: 12px 20px; }` : ""}
-        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #c8a96e; color: #0a0a0a; padding: 10px 24px; border-radius: 999px; font-size: 0.9rem; font-weight: 700; z-index: 999; max-width: 90vw; text-align: center; }
+        .toast { position: fixed; bottom: calc(150px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); background: #c8a96e; color: #0a0a0a; padding: 10px 24px; border-radius: 999px; font-size: 0.9rem; font-weight: 700; z-index: 999; max-width: 90vw; text-align: center; }
       `}</style>
 
       {onboardStep !== null && (() => {
@@ -1415,11 +1405,24 @@ export default function WorkoutTracker() {
         </div>
       </div>
 
-      <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", padding: "0 20px", overflowX: "auto" }}>
-        {[["home", t("홈", "Home")], ["today", t("운동", "Workout")], ["history", t("기록", "History")], ["progress", t("진행", "Progress")], ["ai", t("AI 추천", "AI Coach")], ["settings", "⚙"]].map(([key, label]) => (
-          <button key={key} className={`tab-btn${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>{label}</button>
-        ))}
-      </div>
+      <nav aria-label={t("메뉴", "Menu")} style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 997, background: "#0d0d0d", borderTop: "1px solid #1c1c1c", display: "flex", justifyContent: "space-around", padding: "6px 6px calc(6px + env(safe-area-inset-bottom))" }}>
+        {[
+          ["home", t("홈", "Home"), <path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9z" />],
+          ["today", t("운동", "Workout"), <path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11" />],
+          ["history", t("기록", "History"), <g><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></g>],
+          ["progress", t("진행", "Progress"), <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />],
+          ["settings", t("설정", "Settings"), <g><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" /></g>],
+        ].map(([key, label, icon]) => {
+          const active = tab === key || (key === "home" && tab === "ai"); // AI 화면은 홈에서 들어가므로 홈을 켜 둠
+          return (
+            <button key={key} type="button" aria-label={label} aria-current={active ? "page" : undefined} onClick={() => setTab(key)}
+              style={{ background: "none", border: "none", color: active ? "#c8a96e" : "#8a8a8a", flex: 1, maxWidth: 80, minHeight: 52, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, fontSize: "0.68rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icon}</svg>
+              {label}
+            </button>
+          );
+        })}
+      </nav>
 
       {tab === "home" && (() => {
         const homeRoutine = routines.find(r => r.id === homeRoutineId) || routines[0] || null;
@@ -1517,8 +1520,52 @@ export default function WorkoutTracker() {
         );
       })()}
 
-      {tab === "today" && (
-        <div style={{ padding: "16px 20px" }}>
+      {tab === "today" && (() => {
+        const entries = todaySession.entries;
+        const isDoneEntry = e => e.rounds.every(r => r.sets.every(st => st.reps !== ""));
+        const autoId = (entries.find(e => !isDoneEntry(e)) || entries[entries.length - 1] || {}).id;
+        const activeId = openEntryId === "none" ? null : (openEntryId && entries.some(e => e.id === openEntryId) ? openEntryId : autoId);
+        const summaryOf = e => {
+          const done = e.rounds.flatMap(r => r.sets).filter(st => st.reps !== "");
+          if (done.length === 0) return t("아직 시작 전", "Not started");
+          const last = done[done.length - 1];
+          return `${done.length}${t("세트 완료", done.length === 1 ? " set done" : " sets done")} · ${last.weight ? `${last.weight}kg × ` : ""}${last.reps}`;
+        };
+        const softCard = { background: "#131313", border: "1px solid #262626", borderRadius: 24, padding: "14px 16px" };
+        const bigBtn = { width: "100%", minHeight: 56, borderRadius: 28, background: "#0a0a0a", color: "#c8a96e", border: "1px solid #c8a96e", fontSize: "1rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontFamily: "inherit" };
+        const routinesCard = (
+          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
+          <div style={{ fontSize: "0.85rem", color: "#ccc", marginBottom: routines.length ? 6 : 4 }}>{t("📋 내 루틴", "📋 My routines")}</div>
+          {routines.length === 0 && (
+            <div style={{ fontSize: "0.72rem", color: "#777", lineHeight: 1.6 }}>{t("운동을 한 번 기록한 뒤 '💾 루틴으로 저장'을 누르면, 다음부터 한 번에 불러오고 ✓만 눌러 기록할 수 있어요.", "Log a workout once, then tap '💾 Save as routine'. Next time load it in one tap and just press ✓.")}</div>
+          )}
+          {routines.map((r, i) => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i > 0 ? "1px solid #1e1e1e" : "none" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.92rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                <div style={{ fontSize: "0.68rem", color: "#666", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t(`운동 ${r.exercises.length}개`, `${r.exercises.length} exercises`)} · {r.exercises.map(x => exName(x.exerciseName)).join(", ")}</div>
+              </div>
+              <button className="add-btn" style={{ flexShrink: 0 }} onClick={() => startRoutine(r.id)}>{t("▶ 시작", "▶ START")}</button>
+              <button className="ghost-btn" style={{ flexShrink: 0 }} onClick={() => deleteRoutine(r.id)}>{t("삭제", "Delete")}</button>
+            </div>
+          ))}
+        </div>
+        );
+        return (
+          <div style={{ padding: "16px 20px" }}>
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: "0.75rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a" }}>{formatDate(today, lang)}</div>
+                <h1 style={{ fontSize: "1.9rem", lineHeight: 1.15, fontWeight: 700, marginTop: 4 }}>{t("오늘 운동", "Today's workout")}</h1>
+              </div>
+              <button type="button" onClick={() => setMoreOpen(v => !v)} aria-expanded={moreOpen} aria-label={t("더보기", "More")}
+                style={{ width: 48, height: 48, borderRadius: 24, background: moreOpen ? "#1d1a12" : "#131313", border: `1px solid ${moreOpen ? "#c8a96e" : "#262626"}`, color: moreOpen ? "#c8a96e" : "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
+              </button>
+            </div>
+
+            {moreOpen && (
+              <div style={{ marginBottom: 20 }}>
           {!feedbackDismissed && (sessions.some(s => s.entries.length > 0) || bodyLog.length > 0) && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#14110a", border: "1px solid #3a3226", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: "0.78rem", color: "#ccc", lineHeight: 1.5 }}>{t("💬 써보니 어때요? 불편한 점이나 바라는 기능을 1분만 알려주세요.", "💬 How's it going? Tell me what's off or what you'd like — takes 1 minute.")}</div>
@@ -1584,127 +1631,84 @@ export default function WorkoutTracker() {
             )}
           </div>
 
-          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
-            <div style={{ fontSize: "0.85rem", color: "#ccc", marginBottom: routines.length ? 6 : 4 }}>{t("📋 내 루틴", "📋 My routines")}</div>
-            {routines.length === 0 && (
-              <div style={{ fontSize: "0.72rem", color: "#777", lineHeight: 1.6 }}>{t("운동을 한 번 기록한 뒤 '💾 루틴으로 저장'을 누르면, 다음부터 한 번에 불러오고 ✓만 눌러 기록할 수 있어요.", "Log a workout once, then tap '💾 Save as routine'. Next time load it in one tap and just press ✓.")}</div>
-            )}
-            {routines.map((r, i) => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i > 0 ? "1px solid #1e1e1e" : "none" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                  <div style={{ fontSize: "0.68rem", color: "#666", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t(`운동 ${r.exercises.length}개`, `${r.exercises.length} exercises`)} · {r.exercises.map(x => exName(x.exerciseName)).join(", ")}</div>
-                </div>
-                <button className="add-btn" style={{ flexShrink: 0 }} onClick={() => startRoutine(r.id)}>{t("▶ 시작", "▶ START")}</button>
-                <button className="ghost-btn" style={{ flexShrink: 0 }} onClick={() => deleteRoutine(r.id)}>{t("삭제", "Delete")}</button>
-              </div>
-            ))}
-          </div>
 
-          <div ref={pickerRef} style={{ ...headingStyle, scrollMarginTop: 8 }}>{t("운동 추가", "Add Exercise")}</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            {MUSCLE_GROUPS.map(g => (
-              <button key={g.id} className={`chip${selectedGroupId === g.id ? " active" : ""}`} onClick={() => selectGroup(g.id)}>{g.emoji} {gName(g)}</button>
-            ))}
-          </div>
-          {selectedGroup.id !== "free" && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-              {selectedGroup.subtags.map(st => (
-                <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{stName(st)}</button>
-              ))}
-            </div>
-          )}
-          {(() => {
-            const custom = customExercises[selectedSubtagId] || [];
-            const presets = (EXERCISE_PRESETS[selectedSubtagId] || []).filter(n => !custom.includes(n));
-            const list = [
-              ...custom.map(n => ({ n, custom: true })),
-              ...presets.filter(n => !RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
-              ...presets.filter(n => RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
-            ];
-            if (list.length === 0) return null;
-            const baseList = list.filter(x => x.custom || !RACK_EXERCISES.has(x.n));
-            const visible = showAllPresets ? list : baseList.slice(0, PRESET_VISIBLE);
-            const hiddenCount = list.length - visible.length;
-            return (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                {visible.map(({ n, custom: isCustom }) => (
-                  <span key={n} style={{ display: "inline-flex", alignItems: "center", maxWidth: "100%" }}>
-                    <button className="ghost-btn" style={isCustom ? { borderColor: "#c8a96e", color: "#c8a96e", borderTopRightRadius: 0, borderBottomRightRadius: 0 } : undefined} onClick={() => setExerciseInput(exName(n))}>{isCustom ? "★ " : ""}{exName(n)}</button>
-                    {isCustom && (
-                      <button className="ghost-btn" style={{ borderColor: "#c8a96e", color: "#c8a96e", borderLeft: "none", borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} onClick={() => { if (window.confirm(t(`"${n}" 을(를) 내 목록에서 지울까요? (과거 기록은 그대로예요)`, `Remove "${exName(n)}" from My Exercises? (Past logs are kept)`))) removeCustomExercise(n); }}>×</button>
-                    )}
-                  </span>
-                ))}
-                {hiddenCount > 0 || showAllPresets ? (
-                  <button className="ghost-btn" onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? t("접기 ▴", "Show less ▴") : t(`더보기 (${hiddenCount}) ▾`, `Show more (${hiddenCount}) ▾`)}</button>
-                ) : null}
-              </div>
-            );
-          })()}
-          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <input ref={exerciseInputRef} className="text-input" placeholder={t("운동 이름 검색/입력 (또는 위에서 선택)", "Search or type exercise (or pick above)")} value={exerciseInput}
-              onChange={e => { setExerciseInput(e.target.value); setShowSuggest(true); }}
-              onBlur={() => setTimeout(() => setShowSuggest(false), 150)} />
-            <button className="add-btn" style={{ flexShrink: 0 }} onClick={addEntry}>{t("추가", "ADD")}</button>
-          </div>
-          {showSuggest && (() => {
-            const found = searchExercises(buildSearchIndex(customExercises, sessions), exerciseInput, 6);
-            if (found.length === 0) return null;
-            return (
-              <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, marginBottom: 8, overflow: "hidden" }}>
-                {found.map((item, i) => {
-                  const g = MUSCLE_GROUPS.find(gr => gr.id === item.groupId);
-                  const st = g && g.subtags.find(x => x.id === item.subtagId);
-                  return (
-                    <div key={item.name + item.subtagId} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(item)}
-                      style={{ padding: "10px 14px", cursor: "pointer", borderTop: i > 0 ? "1px solid #1e1e1e" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: "0.85rem", minWidth: 0 }}>{exName(item.name)}</span>
-                      <span style={{ fontSize: "0.65rem", color: "#666", flexShrink: 0 }}>{g ? gName(g) : ""}{st && g.id !== "free" ? ` · ${stName(st)}` : ""}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
-            <button className="ghost-btn" onClick={saveCustomExercise}>{t("★ 이 이름을 내 목록에 저장", "★ Save to My Exercises")}</button>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e" }}>{t("오늘 기록", "Today's Log")}</div>
-            {todaySession.entries.length > 0 && (
-              <div style={{ display: "flex", gap: 6 }}>
-                <button className="ghost-btn" style={{ color: "#c8a96e", borderColor: "#3a3226" }} onClick={saveRoutineFromToday}>{t("💾 루틴으로 저장", "💾 Save as routine")}</button>
-                <button className="ghost-btn" onClick={resetToday}>{t("초기화", "Reset")}</button>
-              </div>
-            )}
-          </div>
-          {todaySession.entries.length === 0 && (
-            <div style={{ color: "#555", fontSize: "0.85rem", padding: "20px 0", textAlign: "center" }}>{t("아직 기록한 운동이 없어요.", "No exercises logged yet.")}</div>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-            {todaySession.entries.map(entry => {
-              const group = MUSCLE_GROUPS.find(g => g.id === entry.groupId);
-              const subtag = group?.subtags.find(st => st.id === entry.subtagId);
-              const history = getExerciseHistory(sessions, entry.exerciseName, today);
-              const isBW = isBodyweightEntry(entry);
-              const bodyKey = bodyKeyForEntry(entry);
-              const bwWord = t("맨몸", "BW");
-              const isCollapsed = collapsedIds.has(entry.id);
-              return (
-                <div key={entry.id} id={`entry-${entry.id}`} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, cursor: "pointer" }} onClick={() => toggleCollapse(entry.id)}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{isCollapsed ? "▸" : "▾"} {exName(entry.exerciseName)}</div>
-                      <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
-                        {group?.emoji} {group ? gName(group) : ""}{subtag ? ` · ${stName(subtag)}` : ""} · {entry.rounds.length} {t("라운드", entry.rounds.length === 1 ? "round" : "rounds")} · {totalSetsOf(entry)} {setsWord}
-                      </div>
-                    </div>
-                    <button className="ghost-btn" style={{ flexShrink: 0, alignSelf: "flex-start" }} onClick={e => { e.stopPropagation(); removeEntry(entry.id); }}>{t("삭제", "Delete")}</button>
+                {routinesCard}
+                {entries.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <button className="ghost-btn" style={{ flex: 1, minHeight: 44, color: "#c8a96e", borderColor: "#3a3226" }} onClick={saveRoutineFromToday}>{t("💾 루틴으로 저장", "💾 Save as routine")}</button>
+                    <button className="ghost-btn" style={{ flex: 1, minHeight: 44 }} onClick={resetToday}>{t("오늘 초기화", "Reset today")}</button>
                   </div>
+                )}
+          <div style={headingStyle}>{t("유산소", "Cardio")}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  {CARDIO_TYPES.map(ct => (
+                    <button key={ct} className={`chip${cardioType === ct ? " active" : ""}`} onClick={() => setCardioType(ct)}>{cardioName(ct)}</button>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" || cardioType === "수영" ? "repeat(3, minmax(0,1fr))" : "repeat(2, minmax(0,1fr))", gap: 8, marginBottom: 8 }}>
+                  <input className="text-input" type="number" inputMode="numeric" placeholder={t("분", "min")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
+                  {cardioType === "러닝머신" && (
+                    <input className="text-input" type="number" inputMode="decimal" placeholder={t("경사", "Incline")} value={cardioIncline} onChange={e => setCardioIncline(e.target.value)} />
+                  )}
+                  {cardioType === "수영" && (
+                    <input className="text-input" type="number" inputMode="numeric" placeholder={t("거리", "Dist")} value={cardioDistance} onChange={e => setCardioDistance(e.target.value)} />
+                  )}
+                  <input className="text-input" type="number" inputMode="numeric" placeholder="kcal" value={cardioCalories} onChange={e => setCardioCalories(e.target.value)} />
+                </div>
+                <button className="add-btn" style={{ width: "100%", marginBottom: 12 }} onClick={addCardio}>{t("유산소 추가", "ADD CARDIO")}</button>
+                {todaySession.cardio.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {todaySession.cardio.map(c => (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ fontSize: "0.85rem" }}>🏃 {cardioLabel(c)}</div>
+                        <button className="ghost-btn" onClick={() => removeCardio(c.id)}>{t("삭제", "Delete")}</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-                  {!isCollapsed && (
+            {entries.length === 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+                <div style={{ ...softCard, textAlign: "center", padding: "28px 20px", color: "#9a9a9a", fontSize: "0.9rem", lineHeight: 1.6 }}>{t("아직 기록한 운동이 없어요.", "No exercises logged yet.")}</div>
+                {!moreOpen && routines.length > 0 && routinesCard}
+                <button type="button" onClick={() => openPicker()} style={{ ...bigBtn, background: "#c8a96e", color: "#0a0a0a", border: "none" }}>{t("＋ 운동 추가", "＋ Add exercise")}</button>
+                <button type="button" onClick={() => setTab("ai")} style={{ ...bigBtn, color: "#f0ede6", border: "1px solid #2a2a2a" }}>{t("⚡ AI가 짜줘", "⚡ Let AI plan it")}</button>
+              </div>
+            )}
+
+            {!moreOpen && todaySession.cardio.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                {todaySession.cardio.map(c => <div key={c.id} style={{ ...softCard, padding: "10px 16px", fontSize: "0.85rem" }}>🏃 {cardioLabel(c)}</div>)}
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+              {entries.map(entry => {
+                const group = MUSCLE_GROUPS.find(g => g.id === entry.groupId);
+                const subtag = group?.subtags.find(st => st.id === entry.subtagId);
+                const history = getExerciseHistory(sessions, entry.exerciseName, today);
+                const isBW = isBodyweightEntry(entry);
+                const bodyKey = bodyKeyForEntry(entry);
+                const bwWord = t("맨몸", "BW");
+                const isOpen = entry.id === activeId;
+                return (
+                  <div key={entry.id} id={`entry-${entry.id}`} style={{ background: "#131313", border: `1px solid ${isOpen ? "#3a3226" : "#262626"}`, borderRadius: isOpen ? 28 : 24, padding: isOpen ? "16px 14px 16px" : "12px 16px", boxShadow: isOpen ? "0 0 0 5px rgba(200,169,110,0.06)" : "none" }}>
+                    <button type="button" aria-expanded={isOpen} onClick={() => setOpenEntryId(isOpen ? "none" : entry.id)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: 0, minHeight: 48, marginBottom: isOpen ? 12 : 0 }}>
+                      <GroupArt groupId={entry.groupId} size={isOpen ? 52 : 48} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: isOpen ? "1.1rem" : "1rem", fontWeight: 700 }}>{exName(entry.exerciseName)}</span>
+                        <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{isOpen ? `${group ? gName(group) : ""}${subtag ? ` · ${stName(subtag)}` : ""} · ${totalSetsOf(entry)} ${setsWord}` : summaryOf(entry)}</span>
+                      </span>
+                      {!isOpen && isDoneEntry(entry) ? (
+                        <span style={{ width: 32, height: 32, borderRadius: 16, background: "#c8a96e", color: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, flexShrink: 0 }} aria-label={t("완료", "Done")}>✓</span>
+                      ) : (
+                        <span style={{ color: "#9a9a9a", fontSize: "1.1rem", flexShrink: 0 }} aria-hidden="true">{isOpen ? "▴" : "▾"}</span>
+                      )}
+                    </button>
+                    {isOpen && (
                     <div style={{ marginTop: 10 }}>
                       <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                         {BODY_MAP[bodyKey] && (
@@ -1787,46 +1791,22 @@ export default function WorkoutTracker() {
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {todaySession.entries.length > 0 && (
-            <button className="add-btn" onClick={scrollToPicker} style={{ width: "100%", marginTop: -10, marginBottom: 24, background: "none", color: "#c8a96e", border: "1px dashed #3a3226" }}>
-              {t("＋ 다른 운동 추가", "＋ Add another exercise")}
-            </button>
-          )}
-
-          <div style={headingStyle}>{t("유산소", "Cardio")}</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            {CARDIO_TYPES.map(ct => (
-              <button key={ct} className={`chip${cardioType === ct ? " active" : ""}`} onClick={() => setCardioType(ct)}>{cardioName(ct)}</button>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" || cardioType === "수영" ? "repeat(3, minmax(0,1fr))" : "repeat(2, minmax(0,1fr))", gap: 8, marginBottom: 8 }}>
-            <input className="text-input" type="number" inputMode="numeric" placeholder={t("분", "min")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
-            {cardioType === "러닝머신" && (
-              <input className="text-input" type="number" inputMode="decimal" placeholder={t("경사", "Incline")} value={cardioIncline} onChange={e => setCardioIncline(e.target.value)} />
-            )}
-            {cardioType === "수영" && (
-              <input className="text-input" type="number" inputMode="numeric" placeholder={t("거리", "Dist")} value={cardioDistance} onChange={e => setCardioDistance(e.target.value)} />
-            )}
-            <input className="text-input" type="number" inputMode="numeric" placeholder="kcal" value={cardioCalories} onChange={e => setCardioCalories(e.target.value)} />
-          </div>
-          <button className="add-btn" style={{ width: "100%", marginBottom: 12 }} onClick={addCardio}>{t("유산소 추가", "ADD CARDIO")}</button>
-          {todaySession.cardio.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {todaySession.cardio.map(c => (
-                <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px" }}>
-                  <div style={{ fontSize: "0.85rem" }}>🏃 {cardioLabel(c)}</div>
-                  <button className="ghost-btn" onClick={() => removeCardio(c.id)}>{t("삭제", "Delete")}</button>
-                </div>
-              ))}
+                    )}
+                    {isOpen && (
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+                        <button className="ghost-btn" onClick={() => removeEntry(entry.id)}>{t("이 운동 삭제", "Delete this exercise")}</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-      )}
+            {entries.length > 0 && (
+              <button type="button" onClick={() => openPicker()} style={bigBtn}>{t("＋ 다른 운동 추가", "＋ Add another exercise")}</button>
+            )}
+          </div>
+        );
+      })()}
 
       {tab === "history" && (
         <div style={{ padding: "16px 20px" }}>
@@ -2104,8 +2084,96 @@ export default function WorkoutTracker() {
         </div>
       )}
 
+      {pickerOpen && (() => {
+        const q = exerciseInput.trim();
+        const rowBtn = { width: "100%", minHeight: 56, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 18px", fontSize: "1rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" };
+        const groupObj = pickerGroup ? MUSCLE_GROUPS.find(g => g.id === pickerGroup) : null;
+        const goBack = () => { if (q) setExerciseInput(""); else if (pickerGroup) setPickerGroup(null); else closePicker(); };
+        const custom = customExercises[selectedSubtagId] || [];
+        const presets = (EXERCISE_PRESETS[selectedSubtagId] || []).filter(n => !custom.includes(n));
+        const list = [
+          ...custom.map(n => ({ n, custom: true })),
+          ...presets.filter(n => !RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
+          ...presets.filter(n => RACK_EXERCISES.has(n)).map(n => ({ n, custom: false })),
+        ];
+        const baseList = list.filter(x => x.custom || !RACK_EXERCISES.has(x.n));
+        const visible = showAllPresets ? list : baseList.slice(0, PRESET_VISIBLE);
+        const hiddenCount = list.length - visible.length;
+        return (
+          <div role="dialog" aria-label={t("운동 고르기", "Pick an exercise")} data-testid="picker" style={{ position: "fixed", inset: 0, zIndex: 998, background: "#0a0a0a", overflowY: "auto", padding: "14px 20px calc(28px + env(safe-area-inset-bottom))" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10 }}>
+              <button type="button" onClick={goBack} aria-label={t("뒤로", "Back")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#f0ede6", fontSize: "1.6rem", cursor: "pointer" }}>‹</button>
+              <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{groupObj && !q ? `${groupObj.emoji} ${gName(groupObj)}` : t("어느 부위 할래?", "Which area?")}</h2>
+              <button type="button" onClick={closePicker} aria-label={t("닫기", "Close")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, height: 52, padding: "0 16px", background: "#131313", border: "1px solid #262626", borderRadius: 26, marginBottom: 16 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              <input ref={exerciseInputRef} type="text" value={exerciseInput} onChange={e => setExerciseInput(e.target.value)} placeholder={t("운동 이름으로 찾기", "Search by exercise name")}
+                aria-label={t("운동 이름 검색", "Search exercises")} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#f0ede6", fontSize: "1rem", fontFamily: "inherit" }} />
+            </label>
+
+            {q ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {searchExercises(buildSearchIndex(customExercises, sessions), exerciseInput, 8).map(item => {
+                  const g = MUSCLE_GROUPS.find(gr => gr.id === item.groupId);
+                  const st = g && g.subtags.find(x => x.id === item.subtagId);
+                  return (
+                    <button key={item.name + item.subtagId} type="button" style={rowBtn} onClick={() => addEntry(item.name, item.subtagId)}>
+                      <span style={{ minWidth: 0 }}>{exName(item.name)}</span>
+                      <span style={{ fontSize: "0.72rem", color: "#777", flexShrink: 0 }}>{g ? gName(g) : ""}{st && g.id !== "free" ? ` · ${stName(st)}` : ""}</span>
+                    </button>
+                  );
+                })}
+                <button type="button" style={{ ...rowBtn, border: "1px dashed #3a3226", color: "#c8a96e" }} onClick={() => addEntry()}>
+                  <span style={{ minWidth: 0 }}>＋ “{exerciseInput.trim()}” {t("직접 추가", "add as typed")}</span>
+                </button>
+                <button type="button" className="ghost-btn" style={{ alignSelf: "flex-end", minHeight: 44 }} onClick={saveCustomExercise}>{t("★ 이 이름을 내 목록에 저장", "★ Save to My Exercises")}</button>
+              </div>
+            ) : !groupObj ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 }}>
+                {MUSCLE_GROUPS.map(g => (
+                  <button key={g.id} type="button" onClick={() => { selectGroup(g.id); setPickerGroup(g.id); }}
+                    style={{ height: 158, background: "#131313", border: g.id === "free" ? "1px dashed #3a3226" : "1px solid #262626", borderRadius: 28, color: g.id === "free" ? "#c8a96e" : "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    <GroupArt groupId={g.id} size={76} />
+                    {gName(g)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                {groupObj.id !== "free" && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                    {groupObj.subtags.map(st => (
+                      <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px", fontSize: "0.85rem" }} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{stName(st)}</button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {visible.map(({ n, custom: isCustom }) => (
+                    <div key={n} style={{ display: "flex", gap: 8 }}>
+                      <button type="button" style={{ ...rowBtn, flex: 1, minWidth: 0, ...(isCustom ? { borderColor: "#3a3226", color: "#c8a96e" } : {}) }} onClick={() => addEntry(n, selectedSubtagId)}>
+                        <span style={{ minWidth: 0 }}>{isCustom ? "★ " : ""}{exName(n)}</span>
+                        <span style={{ color: "#c8a96e", fontSize: "1.3rem", flexShrink: 0 }} aria-hidden="true">＋</span>
+                      </button>
+                      {isCustom && (
+                        <button type="button" aria-label={t("내 목록에서 지우기", "Remove from My Exercises")} className="ghost-btn" style={{ width: 56, flexShrink: 0, borderRadius: 20 }}
+                          onClick={() => { if (window.confirm(t(`"${n}" 을(를) 내 목록에서 지울까요? (과거 기록은 그대로예요)`, `Remove "${exName(n)}" from My Exercises? (Past logs are kept)`))) removeCustomExercise(n); }}>×</button>
+                      )}
+                    </div>
+                  ))}
+                  {(hiddenCount > 0 || showAllPresets) && (
+                    <button type="button" className="ghost-btn" style={{ minHeight: 48, borderRadius: 24 }} onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? t("접기 ▴", "Show less ▴") : t(`더보기 (${hiddenCount}) ▾`, `Show more (${hiddenCount}) ▾`)}</button>
+                  )}
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#777", textAlign: "center", marginTop: 16, lineHeight: 1.6 }}>{t("목록에 없으면 위 검색창에 이름을 쓰고 '직접 추가'를 눌러요.", "Not in the list? Type the name above and tap 'add as typed'.")}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {restTimer && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: restRemaining <= 0 ? "#c8a96e" : "#111", borderTop: "1px solid #2a2a2a", padding: "12px 20px calc(12px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 998 }}>
+        <div style={{ position: "fixed", bottom: "calc(64px + env(safe-area-inset-bottom))", left: 0, right: 0, background: restRemaining <= 0 ? "#c8a96e" : "#111", borderTop: "1px solid #2a2a2a", padding: "12px 20px calc(12px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 998 }}>
           <div>
             <div style={{ fontSize: "0.7rem", color: restRemaining <= 0 ? "#0a0a0a" : "#888" }}>{restTimer.exerciseName ? `${exName(restTimer.exerciseName)} ` : ""}{t("휴식", "rest")}</div>
             <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", letterSpacing: "2px", color: restRemaining <= 0 ? "#0a0a0a" : "#c8a96e" }}>
