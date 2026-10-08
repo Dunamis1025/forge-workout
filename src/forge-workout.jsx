@@ -599,6 +599,9 @@ export default function WorkoutTracker() {
   const swipeStartX = useRef(null);
   const recogRef = useRef(null);
   const [listening, setListening] = useState(false);
+  const [talkMode, setTalkMode] = useState(false); // true = 말이 끝나면 바로 프로그램을 만듦
+  const [speaking, setSpeaking] = useState(false);
+  const canSpeak = typeof window !== "undefined" && "speechSynthesis" in window && typeof window.SpeechSynthesisUtterance !== "undefined";
   const SpeechRec = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null; // 지원 안 하는 기기에서는 🎤 버튼을 숨김
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -1113,10 +1116,34 @@ export default function WorkoutTracker() {
     reader.readAsText(file);
   }
 
+  // 🔊 프로그램 읽어주기 (브라우저 내장 음성 합성, 무료/추가 호출 없음)
+  function stopSpeaking() {
+    try { if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel(); } catch {}
+    setSpeaking(false);
+  }
+  function speakProgram(program) {
+    if (!canSpeak || !program) return;
+    if (speaking) { stopSpeaking(); return; }
+    const en = lang === "en";
+    const lines = [program.summary, ...program.exercises.map((x, i) => `${i + 1}. ${exName(x.name)}, ${x.sets} ${en ? "sets" : "세트"}`), program.caution].filter(Boolean);
+    try {
+      window.speechSynthesis.cancel();
+      const u = new window.SpeechSynthesisUtterance(lines.map(l => (/[.!?。]$/.test(l.trim()) ? l.trim() : l.trim() + ".")).join(" "));
+      u.lang = en ? "en-US" : "ko-KR";
+      u.onend = () => setSpeaking(false);
+      u.onerror = () => setSpeaking(false);
+      window.speechSynthesis.speak(u);
+      setSpeaking(true);
+    } catch { setSpeaking(false); }
+  }
+
   // 🎤 음성 입력 (브라우저 내장 음성 인식). 말한 내용을 AI 메모 칸 뒤에 이어 붙임
-  function toggleVoice() {
+  function toggleVoice(autoRun = false) {
     if (!SpeechRec) return;
     if (listening && recogRef.current) { recogRef.current.stop(); return; }
+    if (aiLoading) return;
+    stopSpeaking();
+    let heard = "";
     const rec = new SpeechRec();
     rec.lang = lang === "en" ? "en-US" : "ko-KR";
     rec.interimResults = true;
@@ -1125,6 +1152,7 @@ export default function WorkoutTracker() {
     rec.onresult = ev => {
       let text = "";
       for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
+      heard = text;
       setAiNote((base + text).slice(0, 300));
     };
     rec.onerror = ev => {
@@ -1133,13 +1161,17 @@ export default function WorkoutTracker() {
       else if (code === "no-speech") showToast(t("말소리가 안 들렸어요", "Didn't hear anything"));
       else if (code !== "aborted") showToast(t("음성 인식에 실패했어요", "Voice input failed"));
     };
-    rec.onend = () => { setListening(false); recogRef.current = null; };
-    try { rec.start(); recogRef.current = rec; setListening(true); } catch { setListening(false); }
+    rec.onend = () => {
+      setListening(false); setTalkMode(false); recogRef.current = null;
+      // '말로 시키기': 말이 끝나고 들린 내용이 있으면 바로 오늘 프로그램을 만듦
+      if (autoRun && heard.trim()) getAiSuggestion("program", (base + heard).slice(0, 300), true);
+    };
+    try { rec.start(); recogRef.current = rec; setListening(true); setTalkMode(autoRun); } catch { setListening(false); setTalkMode(false); }
   }
-  useEffect(() => { if (tab !== "ai" && recogRef.current) { try { recogRef.current.abort(); } catch {} } }, [tab]);
-  useEffect(() => () => { if (recogRef.current) { try { recogRef.current.abort(); } catch {} } }, []);
+  useEffect(() => { if (tab !== "ai") { if (recogRef.current) { try { recogRef.current.abort(); } catch {} } stopSpeaking(); } }, [tab]);
+  useEffect(() => () => { if (recogRef.current) { try { recogRef.current.abort(); } catch {} } try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {} }, []);
 
-  async function getAiSuggestion(mode = "program") {
+  async function getAiSuggestion(mode = "program", noteOverride, speakResult = false) {
     setAiLoading(true);
     setAiError("");
     setAiResult("");
@@ -1166,7 +1198,7 @@ export default function WorkoutTracker() {
       ? "Some fields may say 'not set', 'not entered' or 'not recorded' — ignore those."
       : "'설정 안 함'/'입력 안 함'/'기록 없음'은 무시해주세요.";
     // 프롬프트(지시문)는 서버(api/ai.js)가 갖고 있음. 앱은 사용자 정보만 보냄
-    const context = `${goalLine}\n${bodyLine}\n${conditionLine}\n${degradeNote}\n\n${en ? "How long ago each sub-area was last trained:" : "각 세부 부위를 마지막으로 한 지:"}\n${summary}\n\n${en ? "User note" : "사용자 메모"}: "${(aiNote || (en ? "none" : "없음")).slice(0, 300)}"`;
+    const context = `${goalLine}\n${bodyLine}\n${conditionLine}\n${degradeNote}\n\n${en ? "How long ago each sub-area was last trained:" : "각 세부 부위를 마지막으로 한 지:"}\n${summary}\n\n${en ? "User note" : "사용자 메모"}: "${((noteOverride !== undefined ? noteOverride : aiNote) || (en ? "none" : "없음")).slice(0, 300)}"`;
     const allowed = [...new Set(Object.values(EXERCISE_PRESETS).flat())];
     try {
       const res = await fetch("/api/ai", {
@@ -1178,7 +1210,7 @@ export default function WorkoutTracker() {
       if (res.status === 503 || res.status === 404) { setAiError(""); setAiOff(true); return; }
       if (res.status === 429) throw new Error(t("오늘 사용량이 다 찼어요. 내일 다시 시도해주세요.", "Today's AI limit has been reached. Please try again tomorrow."));
       if (!res.ok || !data.ok) throw new Error(t("AI 응답을 받지 못했어요. 잠시 후 다시 시도해주세요.", "Couldn't get an AI response. Please try again in a moment."));
-      if (mode === "program") setAiProgram(data.program);
+      if (mode === "program") { setAiProgram(data.program); if (speakResult) speakProgram(data.program); }
       else setAiResult(data.text || t("추천을 받아오지 못했어요.", "Couldn't get a recommendation."));
     } catch (e) {
       setAiError(e.message || t("오류가 발생했어요", "Something went wrong"));
@@ -1857,13 +1889,18 @@ export default function WorkoutTracker() {
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: SpeechRec ? 6 : 12 }}>
             <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ flex: 1, minWidth: 0, resize: "vertical" }} />
             {SpeechRec && (
-              <button onClick={toggleVoice} aria-label={listening ? t("음성 입력 끄기", "Stop voice input") : t("음성으로 입력", "Speak your note")} aria-pressed={listening}
+              <button onClick={() => toggleVoice(false)} aria-label={listening ? t("음성 입력 끄기", "Stop voice input") : t("음성으로 입력", "Speak your note")} aria-pressed={listening}
                 style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 26, border: `1px solid ${listening ? "#c8a96e" : "#2a2a2a"}`, background: listening ? "#c8a96e" : "#111", color: listening ? "#0a0a0a" : "#c8a96e", fontSize: "1.3rem", cursor: "pointer", boxShadow: listening ? "0 0 0 4px rgba(200,169,110,0.25)" : "none" }}>
                 {listening ? "■" : "🎤"}
               </button>
             )}
           </div>
           {SpeechRec && <div style={{ fontSize: "0.68rem", color: "#555", marginBottom: 12, lineHeight: 1.5 }}>{listening ? t("듣는 중… 말씀하세요", "Listening… speak now") : t("🎤 음성 인식은 브라우저가 소리를 인식 서비스(예: 구글)로 보내서 글자로 바꿔요.", "🎤 Your browser sends the audio to its speech service (e.g. Google) to turn it into text.")}</div>}
+          {SpeechRec && (
+            <button className="ghost-btn" disabled={aiLoading} onClick={() => toggleVoice(true)} style={{ width: "100%", marginBottom: 8, padding: "12px 12px", fontSize: "0.9rem", color: "#c8a96e", borderColor: talkMode ? "#c8a96e" : "#3a3226", background: talkMode ? "rgba(200,169,110,0.12)" : "none" }}>
+              {talkMode ? t("■ 듣는 중… 다 말했으면 누르세요", "■ Listening… tap when done") : t("🎤 말로 시키기 (말하면 바로 만들어요)", "🎤 Ask by voice (builds right after you speak)")}
+            </button>
+          )}
           <button className="add-btn" disabled={aiLoading} onClick={() => getAiSuggestion("program")} style={{ width: "100%" }}>
             {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 오늘 프로그램 만들기", "⚡ BUILD TODAY'S PLAN")}
           </button>
@@ -1892,6 +1929,7 @@ export default function WorkoutTracker() {
               <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                 <button className="add-btn" style={{ flex: 1 }} onClick={() => { loadRoutineToToday(programToRoutine(aiProgram)); setTab("today"); }}>{t("▶ 오늘 기록에 불러오기", "▶ Load into today")}</button>
                 <button className="ghost-btn" onClick={saveAiProgramAsRoutine}>{t("💾 루틴 저장", "💾 Save")}</button>
+                {canSpeak && <button className="ghost-btn" onClick={() => speakProgram(aiProgram)} aria-pressed={speaking}>{speaking ? t("■ 멈추기", "■ Stop") : t("🔊 읽어주기", "🔊 Read aloud")}</button>}
               </div>
               <div style={{ fontSize: "0.7rem", color: "#666", marginTop: 12, lineHeight: 1.6 }}>{t("AI가 만든 일반적인 운동 제안이며 의학적 조언이 아니에요. 통증이나 불편함이 있으면 멈추고, 필요하면 전문가와 상담하세요.", "This is a general AI-generated suggestion, not medical advice. If something hurts, stop, and check with a qualified professional if needed.")}</div>
             </div>
