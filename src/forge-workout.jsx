@@ -344,8 +344,22 @@ function loadCustomExercises() {
   try { return JSON.parse(localStorage.getItem(CUSTOM_EX_KEY)) || {}; } catch { return {}; }
 }
 function saveCustomExercises(m) { try { localStorage.setItem(CUSTOM_EX_KEY, JSON.stringify(m)); } catch {} }
+// 언어 결정 순서: ①저장된 선택 → ②기존 사용자(기록이 있음)는 한국어 유지 → ③새 사용자는 기기 언어로 자동 감지(한국어 기기가 아니면 영어)
 function loadLang() {
-  try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "ko"; } catch { return "ko"; }
+  try {
+    const saved = localStorage.getItem(LANG_KEY);
+    if (saved === "en" || saved === "ko") return saved;
+    if (localStorage.getItem(STORAGE_KEY)) return "ko";
+    const nav = (typeof navigator !== "undefined" && (navigator.language || (navigator.languages && navigator.languages[0]))) || "en";
+    return /^ko/i.test(nav) ? "ko" : "en";
+  } catch { return "en"; }
+}
+// 첫 실행 안내: 이 기기에서 한 번 끝냈거나, 이미 쓰던 사용자(기록/언어 저장)는 자동으로 띄우지 않음. 백업 파일에는 넣지 않음(기기별 설정)
+const ONBOARD_KEY = "forge_onboarded_v1";
+function needsOnboarding() {
+  try {
+    return !localStorage.getItem(ONBOARD_KEY) && !localStorage.getItem(LANG_KEY) && !localStorage.getItem(STORAGE_KEY);
+  } catch { return false; }
 }
 // 내 루틴: 운동 목록(운동 이름, 라운드별 세트 수, 휴식 시간)만 저장. 무게/렙스는 저장하지 않고 '지난번 기록'에서 가져옴
 const ROUTINES_KEY = "forge_routines_v1";
@@ -579,6 +593,9 @@ export default function WorkoutTracker() {
   const [restRemaining, setRestRemaining] = useState(0);
   const audioCtxRef = useRef(null);
   const importInputRef = useRef(null);
+  const exerciseInputRef = useRef(null);
+  const pickerRef = useRef(null);
+  const [onboardStep, setOnboardStep] = useState(() => (needsOnboarding() ? "lang" : null)); // null | "lang" | 0..3(안내 카드)
 
   // 화면 문구: t("한국어", "English")
   const t = (ko, en) => (lang === "en" ? en : ko);
@@ -609,6 +626,17 @@ export default function WorkoutTracker() {
     setLang(next);
     setExerciseInput("");
     try { localStorage.setItem(LANG_KEY, next); } catch {}
+  }
+
+  function finishOnboarding() {
+    setOnboardStep(null);
+    try { localStorage.setItem(ONBOARD_KEY, "1"); } catch {}
+  }
+
+  // "＋ 다른 운동 추가": 운동 고르는 곳으로 올라가서 검색창에 커서를 둠
+  function scrollToPicker() {
+    if (pickerRef.current) pickerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => { if (exerciseInputRef.current) exerciseInputRef.current.focus({ preventScroll: true }); }, 350);
   }
 
   function unlockAudio() {
@@ -1207,6 +1235,49 @@ ${summary}
         .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #c8a96e; color: #0a0a0a; padding: 10px 24px; border-radius: 999px; font-size: 0.9rem; font-weight: 700; z-index: 999; max-width: 90vw; text-align: center; }
       `}</style>
 
+      {onboardStep !== null && (() => {
+        const cards = [
+          { icon: "🏋️", ko: ["운동 고르기", "'운동 추가'에서 부위를 누르고 운동을 고르거나 이름을 검색해서 추가해요. 목록에 없는 운동은 직접 입력하면 돼요."], en: ["Pick an exercise", "In 'Add Exercise', tap a muscle group and pick a move — or search by name. Not in the list? Just type it."] },
+          { icon: "✓", ko: ["세트 기록하기", "무게와 횟수를 입력하거나, ✓ 버튼 한 번으로 지난번과 같은 숫자를 바로 기록해요."], en: ["Log your sets", "Type weight and reps, or tap ✓ once to log the same numbers as last time."] },
+          { icon: "💾", ko: ["루틴으로 저장", "매일 하는 운동이면 '루틴으로 저장'해 두세요. 다음엔 '내 루틴'에서 한 번에 불러올 수 있어요."], en: ["Save a routine", "Do the same workout often? Tap 'Save as routine'. Next time, load it in one tap from 'My routines'."] },
+          { icon: "📈", ko: ["기록과 진행", "'기록' 탭에서 지난 운동을, '진행' 탭에서 무게가 늘어나는 그래프를 볼 수 있어요. 이 안내는 ⚙ 설정에서 다시 볼 수 있어요."], en: ["History & progress", "See past workouts in 'History' and your weight growth in 'Progress'. You can replay this intro anytime in ⚙ Settings."] },
+        ];
+        const overlay = { position: "fixed", inset: 0, zIndex: 9000, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 };
+        const card = { width: "100%", maxWidth: 360, background: "#111", border: "1px solid #2a2a2a", borderRadius: 14, padding: "28px 22px 20px", textAlign: "center" };
+        if (onboardStep === "lang") {
+          return (
+            <div style={overlay} data-testid="onboard-lang">
+              <div style={card}>
+                <div style={{ fontFamily: "'Bebas Neue'", fontSize: "2rem", letterSpacing: "5px", color: "#c8a96e", marginBottom: 6 }}>FORGE</div>
+                <div style={{ fontSize: "0.9rem", color: "#ccc", marginBottom: 20, lineHeight: 1.6 }}>Choose your language<br />언어를 선택하세요</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button className="add-btn" style={{ padding: "14px 20px", fontSize: "1rem" }} onClick={() => { changeLang("en"); setOnboardStep(0); }}>English</button>
+                  <button className="add-btn" style={{ padding: "14px 20px", fontSize: "1rem" }} onClick={() => { changeLang("ko"); setOnboardStep(0); }}>한국어</button>
+                </div>
+                <button onClick={() => { changeLang(lang); finishOnboarding(); }} style={{ background: "none", border: "none", color: "#666", fontSize: "0.78rem", marginTop: 16, cursor: "pointer" }}>{lang === "ko" ? "건너뛰기" : "Skip"}</button>
+              </div>
+            </div>
+          );
+        }
+        const c = cards[onboardStep];
+        const last = onboardStep === cards.length - 1;
+        const [title, body] = lang === "en" ? c.en : c.ko;
+        return (
+          <div style={overlay} data-testid="onboard-card">
+            <div style={card}>
+              <div style={{ fontSize: "2.6rem", marginBottom: 10, color: "#c8a96e" }}>{c.icon}</div>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 10 }}>{title}</div>
+              <div style={{ fontSize: "0.88rem", color: "#bbb", lineHeight: 1.7, marginBottom: 20, minHeight: 90 }}>{body}</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+                {cards.map((_, i) => <span key={i} style={{ width: 8, height: 8, borderRadius: 4, background: i === onboardStep ? "#c8a96e" : "#333" }} />)}
+              </div>
+              <button className="add-btn" style={{ width: "100%", padding: "13px 20px" }} onClick={() => (last ? finishOnboarding() : setOnboardStep(onboardStep + 1))}>{last ? t("시작하기", "Get started") : t("다음", "Next")}</button>
+              {!last && <button onClick={finishOnboarding} style={{ background: "none", border: "none", color: "#666", fontSize: "0.78rem", marginTop: 12, cursor: "pointer" }}>{t("건너뛰기", "Skip")}</button>}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ borderBottom: "1px solid #1a1a1a", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div>
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.5rem", letterSpacing: "4px", color: "#c8a96e" }}>FORGE</div>
@@ -1313,7 +1384,7 @@ ${summary}
             ))}
           </div>
 
-          <div style={headingStyle}>{t("운동 추가", "Add Exercise")}</div>
+          <div ref={pickerRef} style={{ ...headingStyle, scrollMarginTop: 8 }}>{t("운동 추가", "Add Exercise")}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
             {MUSCLE_GROUPS.map(g => (
               <button key={g.id} className={`chip${selectedGroupId === g.id ? " active" : ""}`} onClick={() => selectGroup(g.id)}>{g.emoji} {gName(g)}</button>
@@ -1355,7 +1426,7 @@ ${summary}
             );
           })()}
           <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <input className="text-input" placeholder={t("운동 이름 검색/입력 (또는 위에서 선택)", "Search or type exercise (or pick above)")} value={exerciseInput}
+            <input ref={exerciseInputRef} className="text-input" placeholder={t("운동 이름 검색/입력 (또는 위에서 선택)", "Search or type exercise (or pick above)")} value={exerciseInput}
               onChange={e => { setExerciseInput(e.target.value); setShowSuggest(true); }}
               onBlur={() => setTimeout(() => setShowSuggest(false), 150)} />
             <button className="add-btn" style={{ flexShrink: 0 }} onClick={addEntry}>{t("추가", "ADD")}</button>
@@ -1504,6 +1575,11 @@ ${summary}
               );
             })}
           </div>
+          {todaySession.entries.length > 0 && (
+            <button className="add-btn" onClick={scrollToPicker} style={{ width: "100%", marginTop: -10, marginBottom: 24, background: "none", color: "#c8a96e", border: "1px dashed #3a3226" }}>
+              {t("＋ 다른 운동 추가", "＋ Add another exercise")}
+            </button>
+          )}
 
           <div style={headingStyle}>{t("유산소", "Cardio")}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -1744,6 +1820,11 @@ ${summary}
           <div style={{ display: "flex", gap: 6, marginBottom: 24 }}>
             <button className={`chip${lang === "ko" ? " active" : ""}`} onClick={() => changeLang("ko")}>한국어</button>
             <button className={`chip${lang === "en" ? " active" : ""}`} onClick={() => changeLang("en")}>English</button>
+          </div>
+
+          <div style={{ ...headingStyle, marginBottom: 6 }}>{t("사용법", "How to use")}</div>
+          <div style={{ marginBottom: 24 }}>
+            <button className="ghost-btn" onClick={() => { setTab("today"); setOnboardStep(0); }}>{t("📖 사용법 다시 보기", "📖 Replay the intro")}</button>
           </div>
 
           <div style={{ ...headingStyle, marginBottom: 6 }}>{t("글자 크기", "Text size")}</div>
