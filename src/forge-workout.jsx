@@ -446,6 +446,14 @@ function bodyTrendLine(log, en) {
 
 // 홈 화면에서 부위마다 쓰는 색(나중에 부위별 그림으로 교체 예정)
 const GROUP_COLORS = { chest: "#7a3b2e", back: "#3f6a52", legs: "#2c3f6b", shoulders: "#8a6a2a", arms: "#5a3a63", free: "#3a3a3a" };
+// 부위 일러스트(public/ 폴더의 webp). 없는 부위(자유/보충)는 이모지로 대체
+const GROUP_IMAGES = { chest: "/group-chest.webp", back: "/group-back.webp", legs: "/group-legs.webp", shoulders: "/group-shoulders.webp", arms: "/group-arms.webp" };
+function GroupArt({ groupId, size, border }) {
+  const g = MUSCLE_GROUPS.find(x => x.id === groupId);
+  const base = { width: size, height: size, borderRadius: size / 2, background: GROUP_COLORS[groupId] || "#3a3a3a", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0, border: border || "none", boxSizing: "border-box" };
+  if (GROUP_IMAGES[groupId]) return <span style={base}><img src={GROUP_IMAGES[groupId]} alt="" draggable="false" style={{ width: "100%", height: "100%", objectFit: "cover", transform: size < 70 ? "scale(1.22)" : "none" }} /></span>;
+  return <span style={{ ...base, fontSize: size * 0.4 }}>{g ? g.emoji : ""}</span>;
+}
 
 function daysAgoLabel(dateStr, lang) {
   const en = lang === "en";
@@ -1449,7 +1457,7 @@ export default function WorkoutTracker() {
                   </div>
                   <div style={{ display: "flex", alignItems: "center" }}>
                     {homeRoutine.exercises.slice(0, 5).map((x, i) => (
-                      <span key={i} title={exName(x.exerciseName)} style={{ width: 54, height: 54, borderRadius: 27, background: GROUP_COLORS[x.groupId] || "#3a3a3a", border: "2px solid #131313", marginLeft: i === 0 ? 0 : -18, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}>{(MUSCLE_GROUPS.find(g => g.id === x.groupId) || {}).emoji}</span>
+                      <span key={i} title={exName(x.exerciseName)} style={{ marginLeft: i === 0 ? 0 : -16, display: "inline-flex" }}><GroupArt groupId={x.groupId} size={56} border="2px solid #131313" /></span>
                     ))}
                     {homeRoutine.exercises.length > 5 && <span style={{ marginLeft: 10, fontSize: "0.8rem", color: "#9a9a9a" }}>+{homeRoutine.exercises.length - 5}</span>}
                   </div>
@@ -1498,8 +1506,8 @@ export default function WorkoutTracker() {
               <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 12 }}>{t("부위로 찾기", "BROWSE BY AREA")}</div>
               <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6, margin: "0 -20px", padding: "0 20px 6px" }}>
                 {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
-                  <button key={g.id} type="button" onClick={() => goPick(g.id)} style={{ flexShrink: 0, width: 84, height: 96, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                    <span style={{ width: 40, height: 40, borderRadius: 20, background: GROUP_COLORS[g.id] || "#3a3a3a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem" }}>{g.emoji}</span>
+                  <button key={g.id} type="button" onClick={() => goPick(g.id)} style={{ flexShrink: 0, width: 88, height: 104, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    <GroupArt groupId={g.id} size={52} />
                     {gName(g)}
                   </button>
                 ))}
