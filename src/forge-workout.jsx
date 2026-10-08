@@ -551,7 +551,6 @@ function formatRoundsCompact(rounds, bwLabel = "BW") {
 
 function totalSetsOf(entry) { return entry.rounds.reduce((sum, r) => sum + r.sets.length, 0); }
 
-const HAS_AI_KEY = !!process.env.REACT_APP_ANTHROPIC_API_KEY;
 const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeWMeGqcLBOcyOY0daGJXBuDRuHXXv9ISmUF2HRHIaT1BFrpw/viewform";
 
 export default function WorkoutTracker() {
@@ -568,6 +567,8 @@ export default function WorkoutTracker() {
   const [aiNote, setAiNote] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
+  const [aiProgram, setAiProgram] = useState(null); // { summary, caution, exercises:[{name,sets,restSeconds}] }
+  const [aiOff, setAiOff] = useState(false); // 서버에 AI 키가 아직 없을 때
   const [aiError, setAiError] = useState("");
   const [collapsedIds, setCollapsedIds] = useState(() => new Set());
   const [justAddedId, setJustAddedId] = useState(null);
@@ -1002,7 +1003,10 @@ export default function WorkoutTracker() {
 
   function startRoutine(id) {
     const r = routines.find(x => x.id === id);
-    if (!r) return;
+    if (r) loadRoutineToToday(r);
+  }
+
+  function loadRoutineToToday(r) {
     const have = new Set(todaySession.entries.map(e => e.exerciseName));
     const fresh = r.exercises.filter(x => !have.has(x.exerciseName)).map(x => ({
       id: uid(), groupId: x.groupId, subtagId: x.subtagId, exerciseName: x.exerciseName, restSeconds: x.restSeconds || DEFAULT_REST,
@@ -1014,6 +1018,17 @@ export default function WorkoutTracker() {
     // 한 화면에 다 펼쳐지면 길어지니, 첫 운동만 펼치고 나머지는 접어둠 (제목을 누르면 펼쳐져요)
     setCollapsedIds(prev => { const next = new Set(prev); fresh.slice(1).forEach(e => next.add(e.id)); fresh[0] && next.delete(fresh[0].id); return next; });
     showToast(t(`'${r.name}' 불러왔어요 (${fresh.length}개)`, `Loaded '${r.name}' (${fresh.length})`));
+  }
+
+  function saveAiProgramAsRoutine() {
+    if (!aiProgram) return;
+    const base = programToRoutine(aiProgram);
+    const name = `${t("AI 프로그램", "AI Program")} ${todayISO().slice(5)}`;
+    const existing = routines.find(r => r.name === name);
+    const routine = { ...base, name, id: existing ? existing.id : uid() };
+    const next = existing ? routines.map(r => (r.id === existing.id ? routine : r)) : [...routines, routine];
+    setRoutines(next); saveRoutines(next);
+    showToast(t("루틴으로 저장했어요 ✓", "Routine saved ✓"));
   }
 
   function deleteRoutine(id) {
@@ -1095,10 +1110,12 @@ export default function WorkoutTracker() {
     reader.readAsText(file);
   }
 
-  async function getAiSuggestion() {
+  async function getAiSuggestion(mode = "program") {
     setAiLoading(true);
     setAiError("");
     setAiResult("");
+    setAiProgram(null);
+    setAiOff(false);
     const en = lang === "en";
     const summary = MUSCLE_GROUPS.filter(g => g.id !== "free")
       .map(g => `${en ? g.en : g.name}: ` + g.subtags.map(st => `${en ? st.en : st.name}(${daysAgoLabel(lastDoneMap[st.id], lang)})`).join(", "))
@@ -1117,57 +1134,40 @@ export default function WorkoutTracker() {
       : (en ? "Today's condition: not entered" : "오늘 컨디션: 입력 안 함");
     const bodyLine = bodyTrendLine(bodyLog, en);
     const degradeNote = en
-      ? "Some fields above may say 'not set', 'not entered' or 'not recorded' — that's fine, just ignore those and give the best possible plan with whatever information is available. Never refuse or ask for missing info."
-      : "위 항목 중 '설정 안 함'/'입력 안 함'/'기록 없음'이 있을 수 있어요 — 그건 그냥 무시하고, 있는 정보만으로 최선의 프로그램을 추천해주세요. 정보 부족을 이유로 추천을 거부하거나 되묻지 마세요.";
-    const prompt = en
-      ? `The user goes to the gym irregularly and trains chest/back/legs/shoulders as a base full-body routine, then spends about the last 20 minutes on arms or lagging muscle groups.
-
-${goalLine}
-${bodyLine}
-${conditionLine}
-${degradeNote}
-
-Below is how long ago each sub-area was last trained:
-
-${summary}
-
-User note: "${aiNote || "none"}"
-
-Based on all of this, recommend in 3-4 natural sentences which sub-areas to prioritise today (and adjust intensity/volume for today's condition and time if given), with reasons rather than a bullet list.`
-      : `사용자는 헬스장에 갈 때마다 가슴/등/다리/어깨를 기본으로 전신운동을 하고, 마지막 약 20분은 팔이나 부족한 부위를 자유롭게 보충합니다.
-
-${goalLine}
-${bodyLine}
-${conditionLine}
-${degradeNote}
-
-아래는 각 부위 세부 항목을 마지막으로 수행한 지 며칠 됐는지입니다:
-
-${summary}
-
-사용자 메모: "${aiNote || "없음"}"
-
-이 모든 정보를 참고해서(목표와 오늘 컨디션/가용 시간이 있다면 강도·볼륨도 거기에 맞춰서) 오늘 어떤 세부 부위를 우선하면 좋을지 한국어로 3~4문장 이내, 자연스러운 문장으로 추천해줘. 목록 나열 대신 이유를 곁들여서.`;
+      ? "Some fields may say 'not set', 'not entered' or 'not recorded' — ignore those."
+      : "'설정 안 함'/'입력 안 함'/'기록 없음'은 무시해주세요.";
+    // 프롬프트(지시문)는 서버(api/ai.js)가 갖고 있음. 앱은 사용자 정보만 보냄
+    const context = `${goalLine}\n${bodyLine}\n${conditionLine}\n${degradeNote}\n\n${en ? "How long ago each sub-area was last trained:" : "각 세부 부위를 마지막으로 한 지:"}\n${summary}\n\n${en ? "User note" : "사용자 메모"}: "${(aiNote || (en ? "none" : "없음")).slice(0, 300)}"`;
+    const allowed = [...new Set(Object.values(EXERCISE_PRESETS).flat())];
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/ai", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": process.env.REACT_APP_ANTHROPIC_API_KEY || "",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 500, messages: [{ role: "user", content: prompt }] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, lang, context, ...(mode === "program" ? { allowed } : {}) }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.content?.map(b => b.text || "").join("") || t("추천을 받아오지 못했어요.", "Couldn't get a recommendation.");
-      setAiResult(text);
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503 || res.status === 404) { setAiError(""); setAiOff(true); return; }
+      if (res.status === 429) throw new Error(t("오늘 사용량이 다 찼어요. 내일 다시 시도해주세요.", "Today's AI limit has been reached. Please try again tomorrow."));
+      if (!res.ok || !data.ok) throw new Error(t("AI 응답을 받지 못했어요. 잠시 후 다시 시도해주세요.", "Couldn't get an AI response. Please try again in a moment."));
+      if (mode === "program") setAiProgram(data.program);
+      else setAiResult(data.text || t("추천을 받아오지 못했어요.", "Couldn't get a recommendation."));
     } catch (e) {
-      setAiError(t("오류가 발생했어요: ", "Something went wrong: ") + e.message);
+      setAiError(e.message || t("오류가 발생했어요", "Something went wrong"));
     } finally {
       setAiLoading(false);
     }
+  }
+
+  // AI 프로그램 → 내 루틴과 같은 모양으로 변환 (이름은 앱 운동 목록에 있는 것만 서버가 통과시킴)
+  function programToRoutine(program) {
+    return {
+      name: t("AI 프로그램", "AI Program"),
+      exercises: program.exercises.map(x => {
+        const subtagId = Object.keys(EXERCISE_PRESETS).find(k => EXERCISE_PRESETS[k].includes(x.name));
+        const group = MUSCLE_GROUPS.find(g => g.subtags.some(st => st.id === subtagId));
+        return subtagId && group ? { exerciseName: x.name, groupId: group.id, subtagId, restSeconds: x.restSeconds, rounds: [x.sets] } : null;
+      }).filter(Boolean),
+    };
   }
 
   const allExerciseNames = getAllExerciseNames(sessions);
@@ -1825,27 +1825,44 @@ ${summary}
 
           <div style={{ ...headingStyle, marginBottom: 6 }}>{t("오늘 뭐 하지?", "What should I train today?")}</div>
           <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 14 }}>{t("위에 입력한 것 + 지난 운동 기록을 참고해서 AI가 오늘 프로그램을 추천해줘요.", "Uses what you entered above plus your workout history to suggest today's plan.")}</div>
-          {!HAS_AI_KEY ? (
-            <div style={{ background: "#111", border: "1px dashed #3a3226", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>
+          <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ marginBottom: 12, resize: "vertical" }} />
+          <button className="add-btn" disabled={aiLoading} onClick={() => getAiSuggestion("program")} style={{ width: "100%" }}>
+            {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 오늘 프로그램 만들기", "⚡ BUILD TODAY'S PLAN")}
+          </button>
+          <button className="ghost-btn" disabled={aiLoading} onClick={() => getAiSuggestion("suggest")} style={{ width: "100%", marginTop: 8, padding: "10px 12px" }}>
+            {t("💬 어느 부위를 할지 추천만 받기", "💬 Just suggest which areas to train")}
+          </button>
+          <div style={{ fontSize: "0.7rem", color: "#555", marginTop: 8, lineHeight: 1.6 }}>{t("입력한 목표·체중 추이·컨디션·메모가 AI 제공사(현재 Google Gemini)로 전송돼요.", "Your goal, weight trend, condition and note are sent to the AI provider (currently Google Gemini).")}</div>
+          {aiOff && (
+            <div style={{ marginTop: 16, background: "#111", border: "1px dashed #3a3226", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>
               <div style={{ color: "#c8a96e", fontWeight: 700, marginBottom: 6 }}>{t("🚧 준비 중", "🚧 Coming soon")}</div>
-              {t(
-                "이 앱이 향하는 방향이에요: AI와 대화하며 내 몸에 딱 맞는 운동법을 찾아가는 것. 지금은 서버 연결 없이 동작하는 버전이라 AI 기능이 꺼져 있어요. (API 키를 브라우저에 그대로 넣으면 노출되기 때문에, 안전한 서버 프록시를 붙인 뒤에 켤 예정이에요.)",
-                "This is where the app is headed: talking with an AI to find the training approach that fits my body. It is switched off for now — putting an API key directly in a browser app would expose it, so I plan to enable it once a secure server-side proxy is in place."
-              )}
+              {t("AI 서버 연결이 아직 켜지지 않았어요. 곧 사용할 수 있게 열릴 예정이에요.", "The AI connection isn't switched on yet. It will be available soon.")}
             </div>
-          ) : (
-            <>
-              <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value)} style={{ marginBottom: 12, resize: "vertical" }} />
-              <button className="add-btn" disabled={aiLoading} onClick={getAiSuggestion} style={{ width: "100%" }}>
-                {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 추천받기", "⚡ GET SUGGESTION")}
-              </button>
-              {aiResult && (
-                <div style={{ marginTop: 16, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>{aiResult}</div>
+          )}
+          {aiProgram && (
+            <div style={{ marginTop: 16, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16 }}>
+              {aiProgram.summary && <div style={{ fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7, marginBottom: 12 }}>{aiProgram.summary}</div>}
+              {aiProgram.exercises.map((x, i) => (
+                <div key={x.name} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: "1px solid #1e1e1e", fontSize: "0.88rem" }}>
+                  <span style={{ minWidth: 0 }}>{i + 1}. {exName(x.name)}</span>
+                  <span style={{ color: "#888", whiteSpace: "nowrap", fontSize: "0.78rem" }}>{x.sets} {setsWord} · {t("휴식", "rest")} {x.restSeconds}{t("초", "s")}</span>
+                </div>
+              ))}
+              {aiProgram.caution && (
+                <div style={{ marginTop: 12, background: "#14110a", border: "1px solid #3a3226", borderRadius: 8, padding: "10px 12px", fontSize: "0.8rem", color: "#e0c488", lineHeight: 1.6 }}>⚠️ {aiProgram.caution}</div>
               )}
-              {aiError && (
-                <div style={{ marginTop: 16, background: "#1a0e0e", border: "1px solid #3a1e1e", borderRadius: 8, padding: 14, fontSize: "0.85rem", color: "#c86e6e" }}>{aiError}</div>
-              )}
-            </>
+              <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                <button className="add-btn" style={{ flex: 1 }} onClick={() => { loadRoutineToToday(programToRoutine(aiProgram)); setTab("today"); }}>{t("▶ 오늘 기록에 불러오기", "▶ Load into today")}</button>
+                <button className="ghost-btn" onClick={saveAiProgramAsRoutine}>{t("💾 루틴 저장", "💾 Save")}</button>
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#666", marginTop: 12, lineHeight: 1.6 }}>{t("AI가 만든 일반적인 운동 제안이며 의학적 조언이 아니에요. 통증이나 불편함이 있으면 멈추고, 필요하면 전문가와 상담하세요.", "This is a general AI-generated suggestion, not medical advice. If something hurts, stop, and check with a qualified professional if needed.")}</div>
+            </div>
+          )}
+          {aiResult && (
+            <div style={{ marginTop: 16, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>{aiResult}</div>
+          )}
+          {aiError && (
+            <div style={{ marginTop: 16, background: "#1a0e0e", border: "1px solid #3a1e1e", borderRadius: 8, padding: 14, fontSize: "0.85rem", color: "#c86e6e" }}>{aiError}</div>
           )}
         </div>
       )}
