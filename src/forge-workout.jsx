@@ -595,6 +595,7 @@ export default function WorkoutTracker() {
   const importInputRef = useRef(null);
   const exerciseInputRef = useRef(null);
   const pickerRef = useRef(null);
+  const swipeStartX = useRef(null);
   const [onboardStep, setOnboardStep] = useState(() => (needsOnboarding() ? "lang" : null)); // null | "lang" | 0..3(안내 카드)
 
   // 화면 문구: t("한국어", "English")
@@ -1263,15 +1264,26 @@ ${summary}
         const last = onboardStep === cards.length - 1;
         const [title, body] = lang === "en" ? c.en : c.ko;
         return (
-          <div style={overlay} data-testid="onboard-card">
-            <div style={card}>
+          <div style={overlay} data-testid="onboard-card"
+            onTouchStart={e => { swipeStartX.current = e.touches[0].clientX; }}
+            onTouchEnd={e => {
+              if (swipeStartX.current === null) return;
+              const dx = e.changedTouches[0].clientX - swipeStartX.current;
+              swipeStartX.current = null;
+              if (dx < -50) { last ? finishOnboarding() : setOnboardStep(onboardStep + 1); } // 왼쪽으로 밀기 = 다음 (마지막 장이면 끝내기)
+              else if (dx > 50 && onboardStep > 0) setOnboardStep(onboardStep - 1); // 오른쪽으로 밀기 = 이전
+            }}>
+            <div style={{ ...card, touchAction: "pan-y" }}>
               <div style={{ fontSize: "2.6rem", marginBottom: 10, color: "#c8a96e" }}>{c.icon}</div>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 10 }}>{title}</div>
               <div style={{ fontSize: "0.88rem", color: "#bbb", lineHeight: 1.7, marginBottom: 20, minHeight: 90 }}>{body}</div>
               <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
-                {cards.map((_, i) => <span key={i} style={{ width: 8, height: 8, borderRadius: 4, background: i === onboardStep ? "#c8a96e" : "#333" }} />)}
+                {cards.map((_, i) => <button key={i} aria-label={`${i + 1}/${cards.length}`} onClick={() => setOnboardStep(i)} style={{ width: 10, height: 10, padding: 0, border: "none", cursor: "pointer", borderRadius: 5, background: i === onboardStep ? "#c8a96e" : "#333" }} />)}
               </div>
-              <button className="add-btn" style={{ width: "100%", padding: "13px 20px" }} onClick={() => (last ? finishOnboarding() : setOnboardStep(onboardStep + 1))}>{last ? t("시작하기", "Get started") : t("다음", "Next")}</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                {onboardStep > 0 && <button className="ghost-btn" style={{ padding: "13px 18px", fontSize: "0.85rem" }} onClick={() => setOnboardStep(onboardStep - 1)}>{t("이전", "Back")}</button>}
+                <button className="add-btn" style={{ flex: 1, padding: "13px 20px" }} onClick={() => (last ? finishOnboarding() : setOnboardStep(onboardStep + 1))}>{last ? t("시작하기", "Get started") : t("다음", "Next")}</button>
+              </div>
               {!last && <button onClick={finishOnboarding} style={{ background: "none", border: "none", color: "#666", fontSize: "0.78rem", marginTop: 12, cursor: "pointer" }}>{t("건너뛰기", "Skip")}</button>}
             </div>
           </div>
