@@ -347,6 +347,27 @@ function saveCustomExercises(m) { try { localStorage.setItem(CUSTOM_EX_KEY, JSON
 function loadLang() {
   try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "ko"; } catch { return "ko"; }
 }
+// 내 루틴: 운동 목록(운동 이름, 라운드별 세트 수, 휴식 시간)만 저장. 무게/렙스는 저장하지 않고 '지난번 기록'에서 가져옴
+const ROUTINES_KEY = "forge_routines_v1";
+function normalizeRoutines(raw) {
+  return (Array.isArray(raw) ? raw : []).map(r => ({
+    id: (r && r.id) || uid(),
+    name: String((r && r.name) || "").slice(0, 40),
+    exercises: (Array.isArray(r && r.exercises) ? r.exercises : []).filter(x => x && x.exerciseName).map(x => ({
+      exerciseName: String(x.exerciseName),
+      groupId: x.groupId,
+      subtagId: x.subtagId,
+      restSeconds: Number(x.restSeconds) || DEFAULT_REST,
+      rounds: (Array.isArray(x.rounds) && x.rounds.length ? x.rounds : [3]).map(n => Math.min(20, Math.max(1, Number(n) || 1))),
+      ...(typeof x.bodyweight === "boolean" ? { bodyweight: x.bodyweight } : {}),
+    })),
+  })).filter(r => r.name && r.exercises.length);
+}
+function loadRoutines() {
+  try { return normalizeRoutines(JSON.parse(localStorage.getItem(ROUTINES_KEY)) || []); } catch { return []; }
+}
+function saveRoutines(list) { try { localStorage.setItem(ROUTINES_KEY, JSON.stringify(list)); } catch {} }
+
 function loadUiSize() {
   try { return localStorage.getItem(UI_SIZE_KEY) === "large" ? "large" : "normal"; } catch { return "normal"; }
 }
@@ -542,6 +563,7 @@ export default function WorkoutTracker() {
   const [cardioCalories, setCardioCalories] = useState("");
   const [cardioDistance, setCardioDistance] = useState(""); // 수영 거리(m)
   const [uiSize, setUiSize] = useState(() => loadUiSize());
+  const [routines, setRoutines] = useState(() => loadRoutines());
   const [diagramIds, setDiagramIds] = useState(() => new Set()); // 타겟 부위 그림을 펼친 운동 카드
   const [openPanels, setOpenPanels] = useState({ time: false, weight: false, last: false }); // 오늘 탭 접이식 섹션
   const [showSuggest, setShowSuggest] = useState(false);
@@ -905,6 +927,68 @@ export default function WorkoutTracker() {
     saveBody(next);
   }
 
+  // 세트 한 번에 기록: 빈 세트에서 ✓를 누르면 지난번(없으면 바로 위 세트) 숫자로 채움. 렙스가 들어가 있으면 '완료'로 봄
+  function completeSet(entryId, roundIdx, setIdx, hint) {
+    const st = todaySession.entries.find(e => e.id === entryId)?.rounds[roundIdx]?.sets[setIdx];
+    if (!st || st.reps !== "") return;
+    if (!hint || !hint.reps) { showToast(t("지난 기록이 없어요. 숫자를 직접 입력해주세요", "No history yet — enter the numbers")); return; }
+    persistSession({
+      entries: todaySession.entries.map(e =>
+        e.id === entryId
+          ? { ...e, rounds: e.rounds.map((r, ri) => (ri === roundIdx ? { ...r, sets: r.sets.map((x, si) => (si === setIdx ? { ...x, weight: x.weight !== "" ? x.weight : (hint.weight ? String(hint.weight) : ""), reps: String(hint.reps) } : x)) } : r)) }
+          : e
+      ),
+    });
+  }
+
+  // ── 내 루틴 ──
+  function saveRoutineFromToday() {
+    if (todaySession.entries.length === 0) { showToast(t("먼저 운동을 추가해주세요", "Add some exercises first")); return; }
+    const raw = window.prompt(t("루틴 이름을 입력하세요 (예: 월요일 가슴)", "Routine name (e.g. Monday chest)"), `${t("루틴", "Routine")} ${routines.length + 1}`);
+    if (raw === null) return;
+    const name = raw.trim().slice(0, 40);
+    if (!name) { showToast(t("이름을 입력해주세요", "Enter a name")); return; }
+    const existing = routines.find(r => r.name === name);
+    if (existing && !window.confirm(t(`'${name}' 루틴이 이미 있어요. 덮어쓸까요?`, `Routine '${name}' already exists. Replace it?`))) return;
+    const routine = {
+      id: existing ? existing.id : uid(),
+      name,
+      exercises: todaySession.entries.map(e => ({
+        exerciseName: e.exerciseName, groupId: e.groupId, subtagId: e.subtagId, restSeconds: e.restSeconds || DEFAULT_REST,
+        rounds: e.rounds.map(r => Math.max(1, r.sets.length)),
+        ...(typeof e.bodyweight === "boolean" ? { bodyweight: e.bodyweight } : {}),
+      })),
+    };
+    const next = existing ? routines.map(r => (r.id === existing.id ? routine : r)) : [...routines, routine];
+    setRoutines(next);
+    saveRoutines(next);
+    showToast(t("루틴으로 저장했어요 ✓", "Routine saved ✓"));
+  }
+
+  function startRoutine(id) {
+    const r = routines.find(x => x.id === id);
+    if (!r) return;
+    const have = new Set(todaySession.entries.map(e => e.exerciseName));
+    const fresh = r.exercises.filter(x => !have.has(x.exerciseName)).map(x => ({
+      id: uid(), groupId: x.groupId, subtagId: x.subtagId, exerciseName: x.exerciseName, restSeconds: x.restSeconds || DEFAULT_REST,
+      ...(typeof x.bodyweight === "boolean" ? { bodyweight: x.bodyweight } : {}),
+      rounds: x.rounds.map(n => ({ id: uid(), sets: Array.from({ length: Math.max(1, n) }, () => ({ weight: "", reps: "" })) })),
+    }));
+    if (fresh.length === 0) { showToast(t("이미 모두 추가돼 있어요", "All exercises are already added")); return; }
+    persistSession({ entries: [...todaySession.entries, ...fresh] });
+    // 한 화면에 다 펼쳐지면 길어지니, 첫 운동만 펼치고 나머지는 접어둠 (제목을 누르면 펼쳐져요)
+    setCollapsedIds(prev => { const next = new Set(prev); fresh.slice(1).forEach(e => next.add(e.id)); fresh[0] && next.delete(fresh[0].id); return next; });
+    showToast(t(`'${r.name}' 불러왔어요 (${fresh.length}개)`, `Loaded '${r.name}' (${fresh.length})`));
+  }
+
+  function deleteRoutine(id) {
+    const r = routines.find(x => x.id === id);
+    if (!r || !window.confirm(t(`'${r.name}' 루틴을 삭제할까요? (운동 기록은 그대로예요)`, `Delete routine '${r.name}'? (Your workout logs are kept)`))) return;
+    const next = routines.filter(x => x.id !== id);
+    setRoutines(next);
+    saveRoutines(next);
+  }
+
   function dismissFeedback() {
     setFeedbackDismissed(true);
     try { localStorage.setItem(FEEDBACK_DISMISS_KEY, "1"); } catch {}
@@ -913,7 +997,7 @@ export default function WorkoutTracker() {
 
   // ── 백업: 기록을 JSON 파일로 폰에 내려받기 / 파일에서 불러오기 (클라우드 저장 아님) ──
   function exportData() {
-    const payload = { app: "forge-workout", version: 3, exportedAt: new Date().toISOString(), sessions, customExercises, bodyLog };
+    const payload = { app: "forge-workout", version: 3, exportedAt: new Date().toISOString(), sessions, customExercises, bodyLog, routines };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -934,10 +1018,11 @@ export default function WorkoutTracker() {
         const parsed = JSON.parse(reader.result);
         const incoming = normalizeSessions(Array.isArray(parsed) ? parsed : parsed.sessions);
         const incomingBody = Array.isArray(parsed) ? [] : normalizeBody(parsed.bodyLog);
-        if (incoming.length === 0 && incomingBody.length === 0) { showToast(t("불러올 기록이 없어요", "No sessions found in file")); return; }
+        const incomingRoutines = Array.isArray(parsed) ? [] : normalizeRoutines(parsed.routines);
+        if (incoming.length === 0 && incomingBody.length === 0 && incomingRoutines.length === 0) { showToast(t("불러올 기록이 없어요", "No sessions found in file")); return; }
         const msg = t(
-          `운동 기록 ${incoming.length}개${incomingBody.length ? `, 체중 기록 ${incomingBody.length}개` : ""}를 불러올까요?\n같은 날짜의 기록은 파일 내용으로 덮어써지고, 나머지 기록은 유지돼요.`,
-          `Import ${incoming.length} session(s)${incomingBody.length ? ` and ${incomingBody.length} weight entr${incomingBody.length === 1 ? "y" : "ies"}` : ""}?\nEntries on the same date will be overwritten by the file; all others are kept.`
+          `운동 기록 ${incoming.length}개${incomingBody.length ? `, 체중 기록 ${incomingBody.length}개` : ""}${incomingRoutines.length ? `, 루틴 ${incomingRoutines.length}개` : ""}를 불러올까요?\n같은 날짜의 기록은 파일 내용으로 덮어써지고, 나머지 기록은 유지돼요.`,
+          `Import ${incoming.length} session(s)${incomingRoutines.length ? `, ${incomingRoutines.length} routine(s)` : ""}${incomingBody.length ? ` and ${incomingBody.length} weight entr${incomingBody.length === 1 ? "y" : "ies"}` : ""}?\nEntries on the same date will be overwritten by the file; all others are kept.`
         );
         if (!window.confirm(msg)) return;
         if (incomingBody.length) {
@@ -959,6 +1044,13 @@ export default function WorkoutTracker() {
           });
           setCustomExercises(mergedCustom);
           saveCustomExercises(mergedCustom);
+        }
+        if (incomingRoutines.length) {
+          const ids = new Set(incomingRoutines.map(r => r.id));
+          const names = new Set(incomingRoutines.map(r => r.name));
+          const mergedRoutines = [...routines.filter(r => !ids.has(r.id) && !names.has(r.name)), ...incomingRoutines];
+          setRoutines(mergedRoutines);
+          saveRoutines(mergedRoutines);
         }
         showToast(t("불러오기 완료", "Import complete"));
       } catch {
@@ -1107,9 +1199,11 @@ ${summary}
         .text-input:focus { outline: none; border-color: #c8a96e; }
         .text-input::placeholder { color: #444; }
         .add-btn { background: #c8a96e; color: #0a0a0a; border: none; font-family: 'Bebas Neue'; font-size: 0.95rem; letter-spacing: 1px; padding: 10px 18px; border-radius: 6px; cursor: pointer; }
+        .done-btn { width: 100%; min-height: 46px; border-radius: 6px; border: 1px solid #3a3226; background: #1a1a1a; color: #6b6150; font-size: 1.35rem; font-weight: 700; cursor: pointer; padding: 0; }
+        .done-btn.on { background: #c8a96e; border-color: #c8a96e; color: #0a0a0a; }
         .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .ghost-btn { background: none; border: 1px solid #2a2a2a; color: #888; font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
-        ${uiSize === "large" ? `html { font-size: 19px; } .log-input { font-size: 24px; min-height: 58px; } .text-input { font-size: 20px; padding: 14px 14px; } .chip { font-size: 0.85rem; padding: 9px 14px; } .ghost-btn { padding: 9px 14px; } .add-btn { padding: 12px 20px; }` : ""}
+        ${uiSize === "large" ? `html { font-size: 19px; } .log-input { font-size: 24px; min-height: 58px; } .done-btn { min-height: 58px; font-size: 1.6rem; } .text-input { font-size: 20px; padding: 14px 14px; } .chip { font-size: 0.85rem; padding: 9px 14px; } .ghost-btn { padding: 9px 14px; } .add-btn { padding: 12px 20px; }` : ""}
         .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #c8a96e; color: #0a0a0a; padding: 10px 24px; border-radius: 999px; font-size: 0.9rem; font-weight: 700; z-index: 999; max-width: 90vw; text-align: center; }
       `}</style>
 
@@ -1202,6 +1296,23 @@ ${summary}
             )}
           </div>
 
+          <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
+            <div style={{ fontSize: "0.85rem", color: "#ccc", marginBottom: routines.length ? 6 : 4 }}>{t("📋 내 루틴", "📋 My routines")}</div>
+            {routines.length === 0 && (
+              <div style={{ fontSize: "0.72rem", color: "#777", lineHeight: 1.6 }}>{t("운동을 한 번 기록한 뒤 '💾 루틴으로 저장'을 누르면, 다음부터 한 번에 불러오고 ✓만 눌러 기록할 수 있어요.", "Log a workout once, then tap '💾 Save as routine'. Next time load it in one tap and just press ✓.")}</div>
+            )}
+            {routines.map((r, i) => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i > 0 ? "1px solid #1e1e1e" : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.92rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ fontSize: "0.68rem", color: "#666", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t(`운동 ${r.exercises.length}개`, `${r.exercises.length} exercises`)} · {r.exercises.map(x => exName(x.exerciseName)).join(", ")}</div>
+                </div>
+                <button className="add-btn" style={{ flexShrink: 0 }} onClick={() => startRoutine(r.id)}>{t("▶ 시작", "▶ START")}</button>
+                <button className="ghost-btn" style={{ flexShrink: 0 }} onClick={() => deleteRoutine(r.id)}>{t("삭제", "Delete")}</button>
+              </div>
+            ))}
+          </div>
+
           <div style={headingStyle}>{t("운동 추가", "Add Exercise")}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
             {MUSCLE_GROUPS.map(g => (
@@ -1274,7 +1385,12 @@ ${summary}
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e" }}>{t("오늘 기록", "Today's Log")}</div>
-            {todaySession.entries.length > 0 && <button className="ghost-btn" onClick={resetToday}>{t("운동 기록 초기화", "Reset log")}</button>}
+            {todaySession.entries.length > 0 && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="ghost-btn" style={{ color: "#c8a96e", borderColor: "#3a3226" }} onClick={saveRoutineFromToday}>{t("💾 루틴으로 저장", "💾 Save as routine")}</button>
+                <button className="ghost-btn" onClick={resetToday}>{t("초기화", "Reset")}</button>
+              </div>
+            )}
           </div>
           {todaySession.entries.length === 0 && (
             <div style={{ color: "#555", fontSize: "0.85rem", padding: "20px 0", textAlign: "center" }}>{t("아직 기록한 운동이 없어요.", "No exercises logged yet.")}</div>
@@ -1344,8 +1460,8 @@ ${summary}
                         <button className={`chip${isBW ? " active" : ""}`} style={{ fontSize: "0.72rem", padding: "5px 10px" }} onClick={() => toggleBodyweight(entry.id)}>{isBW ? t("✓ 맨몸 운동", "✓ Bodyweight") : t("맨몸 운동?", "Bodyweight?")}</button>
                         {isBW && <span style={{ fontSize: "0.68rem", color: "#888", lineHeight: 1.5, flex: 1, minWidth: 180 }}>{t("무게 칸을 비우면 내 체중으로 하는 운동이에요. 벨트 등 추가 무게가 있을 때만 적어요.", "Leave weight empty to use your own bodyweight. Only enter extra weight (e.g. a belt).")}</span>}
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{isBW ? t("추가 무게(kg)", "+Weight (kg)") : t("무게(kg)", "Weight (kg)")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("렙스", "Reps")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("지난번", "Last")}</div><div />
+                      <div style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) 52px 24px", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <div /><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{isBW ? t("추가 무게(kg)", "+Weight (kg)") : t("무게(kg)", "Weight (kg)")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("렙스", "Reps")}</div><div style={{ fontSize: "0.6rem", color: "#555", textAlign: "center" }}>{t("완료", "Done")}</div><div />
                       </div>
                       {entry.rounds.map((round, ri) => (
                         <div key={round.id} style={{ marginTop: ri > 0 ? 10 : 0, paddingTop: ri > 0 ? 8 : 0, borderTop: ri > 0 ? "1px dashed #2a2a2a" : "none" }}>
@@ -1357,13 +1473,16 @@ ${summary}
                           )}
                           {round.sets.map((st, si) => {
                             const prev = history?.rounds?.[ri]?.sets?.[si];
-                            const hint = prev || (history ? lastSetOf(history.rounds) : null); // 입력칸에 흐리게 보이는 지난번 숫자
+                            const above = si > 0 ? round.sets[si - 1] : null;
+                            // 입력칸에 흐리게 보이는 숫자 = 지난번 같은 세트 → 지난번 마지막 세트 → (처음 하는 운동이면) 오늘 바로 위 세트
+                            const hint = prev || (history ? lastSetOf(history.rounds) : null) || (above && above.reps !== "" ? above : null);
+                            const isDone = st.reps !== "";
                             return (
-                              <div key={si} style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                              <div key={si} style={{ display: "grid", gridTemplateColumns: "24px minmax(0,1fr) minmax(0,1fr) 52px 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                 <div style={{ fontSize: "0.66rem", color: "#555", textAlign: "center" }}>{si + 1}</div>
                                 <input className="log-input" type="number" inputMode="decimal" placeholder={hint?.weight ? String(hint.weight) : isBW ? bwWord : "—"} value={st.weight} onChange={e => updateSet(entry.id, ri, si, "weight", e.target.value)} />
                                 <input className="log-input" type="number" inputMode="numeric" placeholder={hint?.reps ? String(hint.reps) : "—"} value={st.reps} onChange={e => updateSet(entry.id, ri, si, "reps", e.target.value)} />
-                                <div style={{ fontSize: "0.66rem", color: "#666", textAlign: "center" }}>{prev ? `${prev.weight || (isBW ? bwWord : "—")}×${prev.reps || "—"}` : "—"}</div>
+                                <button className={`done-btn${isDone ? " on" : ""}`} aria-label={t("완료 (지난번 숫자로 기록)", "Done (log same as last time)")} onClick={() => completeSet(entry.id, ri, si, hint)}>✓</button>
                                 <button onClick={() => removeSet(entry.id, ri, si)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.9rem" }}>×</button>
                               </div>
                             );
