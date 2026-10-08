@@ -585,6 +585,9 @@ export default function WorkoutTracker() {
   const [pickerOpen, setPickerOpen] = useState(false); // 운동 고르는 전체 화면
   const [pickerGroup, setPickerGroup] = useState(null); // null = 부위 고르기 화면, 그 외 = 그 부위의 운동 목록
   const [moreOpen, setMoreOpen] = useState(false); // 운동 탭 "더보기"
+  const [progressGroup, setProgressGroup] = useState("all"); // 진행 탭 부위 필터
+  const [progressShowAll, setProgressShowAll] = useState(false);
+  const [weightOpen, setWeightOpen] = useState(false); // 진행 탭 체중 카드 펼침
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
@@ -1250,7 +1253,6 @@ export default function WorkoutTracker() {
 
   const allExerciseNames = getAllExerciseNames(sessions);
   const pastSessions = [...sessions].filter(s => s.entries.length > 0 || (s.cardio && s.cardio.length > 0)).sort((a, b) => b.date.localeCompare(a.date));
-  const progressData = progressExercise ? getProgressForExercise(sessions, progressExercise) : [];
   const setsWord = t("세트", "sets");
   const minWord = t("분", "min");
   const headingStyle = { fontFamily: "'Bebas Neue'", fontSize: "1rem", letterSpacing: "2px", color: "#c8a96e", marginBottom: 10 };
@@ -1851,99 +1853,165 @@ export default function WorkoutTracker() {
         </div>
       )}
 
-      {tab === "progress" && (
-        <div style={{ padding: "16px 20px" }}>
-          <div style={{ ...headingStyle, marginBottom: 12 }}>{t("체중 추이", "Body Weight")}</div>
-          {bodyLog.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem", marginBottom: 24 }}>{t("'오늘' 탭에서 체중을 기록하면 여기에 추이가 나와요.", "Log your weight on the Today tab to see the trend here.")}</div>}
-          {bodyLog.length > 0 && (() => {
-            const avgAll = movingAvg(bodyLog);
-            const startIdx = Math.max(0, bodyLog.length - 30);
-            const shown = bodyLog.slice(startIdx);
-            const avgs = avgAll.slice(startIdx);
-            const last = bodyLog[bodyLog.length - 1];
-            const delta = avgs[avgs.length - 1] - avgs[0];
-            const W = 300, H = 110, L = 34, R = 8, T = 10, B = 18;
-            const vals = [...shown.map(b => b.weight), ...avgs];
-            const lo = Math.min(...vals) - 0.3, hi = Math.max(...vals) + 0.3;
-            const spanDays = shown.length > 1 ? dayDiff(shown[0].date, shown[shown.length - 1].date) || 1 : 1;
-            const x = d => L + (dayDiff(shown[0].date, d) / spanDays) * (W - L - R);
-            const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-            return (
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px", marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-                  <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.6rem", letterSpacing: "1px", color: "#f0ede6" }}>{last.weight}<span style={{ fontSize: "0.9rem", color: "#888" }}> kg</span></div>
-                  {shown.length > 1 && <div style={{ fontSize: "0.78rem", color: "#c8a96e" }}>{t("7일 평균 추세", "7-day avg trend")} {delta >= 0 ? "+" : ""}{delta.toFixed(1)}kg</div>}
-                </div>
-                {shown.length < 2 ? (
-                  <div style={{ color: "#555", fontSize: "0.8rem" }}>{t("2일 이상 기록하면 그래프가 나와요.", "Log at least 2 days to see a chart.")}</div>
-                ) : (
-                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-                    <line x1={L} y1={T} x2={W - R} y2={T} stroke="#1e1e1e" />
-                    <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="#1e1e1e" />
-                    <text x={L - 4} y={T + 3} fontSize="8" fill="#555" textAnchor="end">{hi.toFixed(1)}</text>
-                    <text x={L - 4} y={H - B + 3} fontSize="8" fill="#555" textAnchor="end">{lo.toFixed(1)}</text>
-                    <text x={L} y={H - 4} fontSize="8" fill="#555">{shown[0].date.slice(5)}</text>
-                    <text x={W - R} y={H - 4} fontSize="8" fill="#555" textAnchor="end">{shown[shown.length - 1].date.slice(5)}</text>
-                    {shown.map(b => <circle key={b.id} cx={x(b.date)} cy={y(b.weight)} r="2.5" fill="#555" />)}
-                    <polyline points={shown.map((b, i) => `${x(b.date)},${y(avgs[i])}`).join(" ")} fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                  </svg>
-                )}
-                {shown.length >= 2 && <div style={{ fontSize: "0.66rem", color: "#555", marginTop: 6 }}>{t("● 하루 기록  ━ 7일 평균. 체중은 하루에도 오르내리니 평균선을 보세요.", "● daily  ━ 7-day average. Weight swings day to day — watch the average line.")}</div>}
-              </div>
-            );
-          })()}
-          {bodyLog.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 28 }}>
-              {[...bodyLog].slice(-5).reverse().map(b => (
-                <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
-                  <span>{b.date.slice(5)} · {b.weight}kg{b.bodyFat ? ` · ${t("체지방", "fat")} ${b.bodyFat}%` : ""}{b.muscle ? ` · ${t("근육", "muscle")} ${b.muscle}kg` : ""}</span>
-                  <button onClick={() => removeBody(b.id)} aria-label={t("삭제", "Delete")} style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: "0.9rem" }}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
+      {tab === "progress" && (() => {
+        const softCard = { background: "#131313", border: "1px solid #262626", borderRadius: 24 };
+        const spark = (vals, color, w = 64, h = 26) => {
+          if (vals.length < 2) return null;
+          const lo = Math.min(...vals), hi = Math.max(...vals), rng = hi - lo || 1;
+          const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * (w - 4) + 2},${h - 3 - ((v - lo) / rng) * (h - 6)}`).join(" ");
+          return <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ flexShrink: 0 }}><polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg>;
+        };
+        // 운동별 요약: 가장 최근에 한 순서로, 부위는 가장 최근 기록 기준
+        const lastEntryOf = name => {
+          const ds = [...sessions].sort((x, y) => y.date.localeCompare(x.date));
+          for (const se of ds) { const e = se.entries.find(en => en.exerciseName === name); if (e) return { date: se.date, groupId: e.groupId }; }
+          return { date: "", groupId: "free" };
+        };
+        const metas = allExerciseNames.map(name => {
+          const data = getProgressForExercise(sessions, name);
+          const le = lastEntryOf(name);
+          return { name, data, date: le.date, groupId: le.groupId };
+        }).sort((x, y) => y.date.localeCompare(x.date));
+        const groupsPresent = MUSCLE_GROUPS.filter(g => metas.some(m => m.groupId === g.id));
+        const filtered = progressGroup === "all" ? metas : metas.filter(m => m.groupId === progressGroup);
+        const shownMetas = progressShowAll ? filtered : filtered.slice(0, 6);
+        const w = bodyLog.length ? bodyLog : null;
+        const avgAll = w ? movingAvg(bodyLog) : [];
+        const lastW = w ? bodyLog[bodyLog.length - 1] : null;
+        const wDelta = w && bodyLog.length > 1 ? avgAll[avgAll.length - 1] - avgAll[Math.max(0, bodyLog.length - 30)] : null;
+        return (
+          <div style={{ padding: "16px 20px" }}>
+            <h1 style={{ fontSize: "1.9rem", lineHeight: 1.15, fontWeight: 700, margin: "4px 0 18px" }}>{t("진행", "Progress")}</h1>
 
-          <div style={{ ...headingStyle, marginBottom: 12 }}>{t("운동별 진행", "Progress by Exercise")}</div>
-          {allExerciseNames.length === 0 && <div style={{ color: "#555", fontSize: "0.85rem" }}>{t("기록을 쌓으면 여기서 무게(맨몸 운동은 횟수) 변화를 볼 수 있어요.", "Log a few sessions to see weight (or reps for bodyweight moves) progress here.")}</div>}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-            {allExerciseNames.map(name => (
-              <button key={name} className={`chip${progressExercise === name ? " active" : ""}`} onClick={() => setProgressExercise(name)}>{exName(name)}</button>
-            ))}
-          </div>
-          {progressExercise && progressData.length < 2 && (
-            <div style={{ color: "#555", fontSize: "0.85rem" }}>{t(`이 운동은 2회 이상 기록해야 그래프가 나와요. (현재 ${progressData.length}회)`, `Log this exercise at least twice to see a chart. (Currently ${progressData.length})`)}</div>
-          )}
-          {progressData.length >= 2 && (() => {
-            const maxW = Math.max(...progressData.map(d => d.weight));
-            const minW = Math.min(...progressData.map(d => d.weight));
-            const unit = progressData[0].unit === "reps" ? t("회", " reps") : "kg";
-            const gain = (progressData[progressData.length - 1].weight - progressData[0].weight).toFixed(progressData[0].unit === "reps" ? 0 : 1);
-            return (
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "14px 16px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontSize: "0.85rem", color: "#999" }}>{t(`${progressData.length}회 기록 · 현재 ${progressData[progressData.length - 1].weight}${unit}`, `${progressData.length} sessions · now ${progressData[progressData.length - 1].weight}${unit}`)}</div>
-                  <div style={{ fontFamily: "'Bebas Neue'", fontSize: "1.1rem", color: parseFloat(gain) >= 0 ? "#6ec87a" : "#c86e6e" }}>
-                    {parseFloat(gain) >= 0 ? "+" : ""}{gain}{unit}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 90 }}>
-                  {progressData.map((d, i) => {
-                    const pct = maxW === minW ? 100 : ((d.weight - minW) / (maxW - minW)) * 75 + 25;
-                    const isLatest = i === progressData.length - 1;
-                    return (
-                      <div key={i} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                        <div style={{ fontSize: "0.6rem", color: isLatest ? "#c8a96e" : "#666" }}>{d.weight}</div>
-                        <div style={{ width: "100%", background: isLatest ? "#c8a96e" : "#2a2a2a", borderRadius: "2px 2px 0 0", height: `${pct}%`, minHeight: 6 }} />
-                        <div style={{ fontSize: "0.56rem", color: "#555" }}>{d.date.slice(5)}</div>
+            {!w ? (
+              <div style={{ ...softCard, padding: "18px 20px", color: "#9a9a9a", fontSize: "0.85rem", lineHeight: 1.6, marginBottom: 22 }}>{t("운동 탭의 ⋯ 더보기에서 체중을 기록하면 여기에 추이가 나와요.", "Log your weight in Workout → ⋯ More and the trend shows up here.")}</div>
+            ) : (
+              <div style={{ ...softCard, marginBottom: 22, overflow: "hidden" }}>
+                <button type="button" aria-expanded={weightOpen} onClick={() => setWeightOpen(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: "16px 18px", minHeight: 64 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#c8a96e" }}>{t("체중", "BODY WEIGHT")}</span>
+                    <span style={{ display: "block", fontSize: "1.7rem", fontWeight: 700, marginTop: 2 }}>{lastW.weight}<span style={{ fontSize: "0.9rem", color: "#888", fontWeight: 500 }}> kg</span></span>
+                  </span>
+                  {wDelta !== null && <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#c8a96e" }}>{wDelta >= 0 ? "+" : ""}{wDelta.toFixed(1)}kg</span>}
+                  {spark(bodyLog.slice(-14).map(b => b.weight), "#c8a96e", 72, 30)}
+                  <span style={{ color: "#9a9a9a" }} aria-hidden="true">{weightOpen ? "▴" : "▾"}</span>
+                </button>
+                {weightOpen && (() => {
+                  const startIdx = Math.max(0, bodyLog.length - 30);
+                  const shown = bodyLog.slice(startIdx);
+                  const avgs = avgAll.slice(startIdx);
+                  const W = 300, H = 110, L = 34, R = 8, T = 10, B = 18;
+                  const vals = [...shown.map(b => b.weight), ...avgs];
+                  const lo = Math.min(...vals) - 0.3, hi = Math.max(...vals) + 0.3;
+                  const spanDays = shown.length > 1 ? dayDiff(shown[0].date, shown[shown.length - 1].date) || 1 : 1;
+                  const x = d => L + (dayDiff(shown[0].date, d) / spanDays) * (W - L - R);
+                  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+                  return (
+                    <div style={{ padding: "0 18px 16px" }}>
+                      {shown.length < 2 ? (
+                        <div style={{ color: "#777", fontSize: "0.8rem" }}>{t("2일 이상 기록하면 그래프가 나와요.", "Log at least 2 days to see a chart.")}</div>
+                      ) : (
+                        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+                          <line x1={L} y1={T} x2={W - R} y2={T} stroke="#1e1e1e" />
+                          <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="#1e1e1e" />
+                          <text x={L - 4} y={T + 3} fontSize="8" fill="#555" textAnchor="end">{hi.toFixed(1)}</text>
+                          <text x={L - 4} y={H - B + 3} fontSize="8" fill="#555" textAnchor="end">{lo.toFixed(1)}</text>
+                          <text x={L} y={H - 4} fontSize="8" fill="#555">{shown[0].date.slice(5)}</text>
+                          <text x={W - R} y={H - 4} fontSize="8" fill="#555" textAnchor="end">{shown[shown.length - 1].date.slice(5)}</text>
+                          {shown.map(b => <circle key={b.id} cx={x(b.date)} cy={y(b.weight)} r="2.5" fill="#555" />)}
+                          <polyline points={shown.map((b, i) => `${x(b.date)},${y(avgs[i])}`).join(" ")} fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                        </svg>
+                      )}
+                      <div style={{ fontSize: "0.7rem", color: "#666", margin: "6px 0 10px", lineHeight: 1.5 }}>{t("● 하루 기록 ━ 7일 평균 · 체중은 하루에도 오르내리니 평균선을 보세요.", "● daily ━ 7-day average · watch the average line.")}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {[...bodyLog].slice(-5).reverse().map(b => (
+                          <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.8rem", color: "#ccc", background: "#0d0d0d", borderRadius: 12, padding: "6px 6px 6px 12px" }}>
+                            <span>{b.date.slice(5)} · {b.weight}kg{b.bodyFat ? ` · ${t("체지방", "fat")} ${b.bodyFat}%` : ""}{b.muscle ? ` · ${t("근육", "muscle")} ${b.muscle}kg` : ""}</span>
+                            <button onClick={() => removeBody(b.id)} aria-label={t("삭제", "Delete")} style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: "0.95rem", width: 40, height: 40 }}>✕</button>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })()}
               </div>
-            );
-          })()}
-        </div>
-      )}
+            )}
+
+            <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 12 }}>{t("운동별", "BY EXERCISE")}</div>
+            {metas.length === 0 && <div style={{ ...softCard, padding: "18px 20px", color: "#9a9a9a", fontSize: "0.85rem", lineHeight: 1.6 }}>{t("기록을 쌓으면 여기서 운동별 변화를 볼 수 있어요.", "Log a few sessions to see your progress per exercise here.")}</div>}
+
+            {groupsPresent.length > 1 && (
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12, marginBottom: 4 }}>
+                {[{ id: "all" }, ...groupsPresent].map(g => {
+                  const on = progressGroup === g.id;
+                  return (
+                    <button key={g.id} type="button" aria-pressed={on} onClick={() => { setProgressGroup(g.id); setProgressShowAll(false); setProgressExercise(""); }}
+                      style={{ flexShrink: 0, minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: g.id === "all" ? "0 18px" : "0 14px 0 6px", borderRadius: 22, background: on ? "#c8a96e" : "#131313", color: on ? "#0a0a0a" : "#f0ede6", border: `1px solid ${on ? "#c8a96e" : "#262626"}`, fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      {g.id !== "all" && <GroupArt groupId={g.id} size={32} />}
+                      {g.id === "all" ? t("전체", "All") : gName(g)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {shownMetas.map(m => {
+                const unit = m.data[0]?.unit === "reps" ? t("회", " reps") : "kg";
+                const hasTrend = m.data.length >= 2;
+                const first = m.data[0], last = m.data[m.data.length - 1];
+                const gain = hasTrend ? last.weight - first.weight : 0;
+                const open = progressExercise === m.name;
+                const maxW = hasTrend ? Math.max(...m.data.map(d => d.weight)) : 0;
+                const minW = hasTrend ? Math.min(...m.data.map(d => d.weight)) : 0;
+                return (
+                  <div key={m.name} style={{ ...softCard, borderColor: open ? "#3a3226" : "#262626", overflow: "hidden" }}>
+                    <button type="button" aria-expanded={open} onClick={() => setProgressExercise(open ? "" : m.name)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: "12px 16px", minHeight: 68 }}>
+                      <GroupArt groupId={m.groupId} size={44} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: "0.98rem", fontWeight: 700, lineHeight: 1.3 }}>{exName(m.name)}</span>
+                        <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{last ? `${last.weight}${unit}` : t("기록 없음", "No data")}{hasTrend ? "" : ` · ${t("1회 기록", "1 session")}`}</span>
+                      </span>
+                      {hasTrend && <span style={{ fontSize: "0.85rem", fontWeight: 700, color: gain >= 0 ? "#6ec87a" : "#c86e6e", flexShrink: 0 }}>{gain >= 0 ? "+" : ""}{unit === "kg" ? gain.toFixed(1) : gain}{unit}</span>}
+                      {spark(m.data.slice(-10).map(d => d.weight), gain >= 0 ? "#6ec87a" : "#c86e6e")}
+                    </button>
+                    {open && (
+                      <div style={{ padding: "0 16px 16px" }}>
+                        {!hasTrend ? (
+                          <div style={{ color: "#777", fontSize: "0.8rem", lineHeight: 1.6 }}>{t(`2회 이상 기록하면 그래프가 나와요. (현재 ${m.data.length}회)`, `Log it at least twice to see a chart. (Now ${m.data.length})`)}</div>
+                        ) : (
+                          <div>
+                            <div style={{ fontSize: "0.78rem", color: "#9a9a9a", marginBottom: 10 }}>{t(`${m.data.length}회 기록 · 현재 ${last.weight}${unit}`, `${m.data.length} sessions · now ${last.weight}${unit}`)}</div>
+                            <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 96 }}>
+                              {m.data.map((d, i) => {
+                                const pct = maxW === minW ? 100 : ((d.weight - minW) / (maxW - minW)) * 75 + 25;
+                                const isLatest = i === m.data.length - 1;
+                                return (
+                                  <div key={i} style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 3 }}>
+                                    <div style={{ fontSize: "0.6rem", color: isLatest ? "#c8a96e" : "#777" }}>{d.weight}</div>
+                                    <div style={{ width: "100%", background: isLatest ? "#c8a96e" : "#2a2a2a", borderRadius: "4px 4px 0 0", height: `${pct * 0.6}%`, minHeight: 6 }} />
+                                    <div style={{ fontSize: "0.56rem", color: "#666" }}>{d.date.slice(5)}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filtered.length > 6 && (
+                <button type="button" className="ghost-btn" style={{ minHeight: 48, borderRadius: 24, fontSize: "0.85rem" }} onClick={() => setProgressShowAll(v => !v)}>
+                  {progressShowAll ? t("접기 ▴", "Show less ▴") : t(`더 보기 (${filtered.length - 6}) ▾`, `Show more (${filtered.length - 6}) ▾`)}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {tab === "ai" && (
         <div style={{ padding: "16px 20px" }}>
