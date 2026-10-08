@@ -597,6 +597,9 @@ export default function WorkoutTracker() {
   const exerciseInputRef = useRef(null);
   const pickerRef = useRef(null);
   const swipeStartX = useRef(null);
+  const recogRef = useRef(null);
+  const [listening, setListening] = useState(false);
+  const SpeechRec = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null; // 지원 안 하는 기기에서는 🎤 버튼을 숨김
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [onboardStep, setOnboardStep] = useState(() => (needsOnboarding() ? "lang" : null)); // null | "lang" | 0..3(안내 카드)
@@ -1109,6 +1112,32 @@ export default function WorkoutTracker() {
     };
     reader.readAsText(file);
   }
+
+  // 🎤 음성 입력 (브라우저 내장 음성 인식). 말한 내용을 AI 메모 칸 뒤에 이어 붙임
+  function toggleVoice() {
+    if (!SpeechRec) return;
+    if (listening && recogRef.current) { recogRef.current.stop(); return; }
+    const rec = new SpeechRec();
+    rec.lang = lang === "en" ? "en-US" : "ko-KR";
+    rec.interimResults = true;
+    rec.continuous = false;
+    const base = aiNote.trim() ? aiNote.trim() + " " : "";
+    rec.onresult = ev => {
+      let text = "";
+      for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
+      setAiNote((base + text).slice(0, 300));
+    };
+    rec.onerror = ev => {
+      const code = ev && ev.error;
+      if (code === "not-allowed" || code === "service-not-allowed") showToast(t("마이크 권한을 허용해주세요", "Please allow microphone access"));
+      else if (code === "no-speech") showToast(t("말소리가 안 들렸어요", "Didn't hear anything"));
+      else if (code !== "aborted") showToast(t("음성 인식에 실패했어요", "Voice input failed"));
+    };
+    rec.onend = () => { setListening(false); recogRef.current = null; };
+    try { rec.start(); recogRef.current = rec; setListening(true); } catch { setListening(false); }
+  }
+  useEffect(() => { if (tab !== "ai" && recogRef.current) { try { recogRef.current.abort(); } catch {} } }, [tab]);
+  useEffect(() => () => { if (recogRef.current) { try { recogRef.current.abort(); } catch {} } }, []);
 
   async function getAiSuggestion(mode = "program") {
     setAiLoading(true);
@@ -1825,7 +1854,16 @@ export default function WorkoutTracker() {
 
           <div style={{ ...headingStyle, marginBottom: 6 }}>{t("오늘 뭐 하지?", "What should I train today?")}</div>
           <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 14 }}>{t("위에 입력한 것 + 지난 운동 기록을 참고해서 AI가 오늘 프로그램을 추천해줘요.", "Uses what you entered above plus your workout history to suggest today's plan.")}</div>
-          <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ marginBottom: 12, resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: SpeechRec ? 6 : 12 }}>
+            <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ flex: 1, minWidth: 0, resize: "vertical" }} />
+            {SpeechRec && (
+              <button onClick={toggleVoice} aria-label={listening ? t("음성 입력 끄기", "Stop voice input") : t("음성으로 입력", "Speak your note")} aria-pressed={listening}
+                style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 26, border: `1px solid ${listening ? "#c8a96e" : "#2a2a2a"}`, background: listening ? "#c8a96e" : "#111", color: listening ? "#0a0a0a" : "#c8a96e", fontSize: "1.3rem", cursor: "pointer", boxShadow: listening ? "0 0 0 4px rgba(200,169,110,0.25)" : "none" }}>
+                {listening ? "■" : "🎤"}
+              </button>
+            )}
+          </div>
+          {SpeechRec && <div style={{ fontSize: "0.68rem", color: "#555", marginBottom: 12, lineHeight: 1.5 }}>{listening ? t("듣는 중… 말씀하세요", "Listening… speak now") : t("🎤 음성 인식은 브라우저가 소리를 인식 서비스(예: 구글)로 보내서 글자로 바꿔요.", "🎤 Your browser sends the audio to its speech service (e.g. Google) to turn it into text.")}</div>}
           <button className="add-btn" disabled={aiLoading} onClick={() => getAiSuggestion("program")} style={{ width: "100%" }}>
             {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 오늘 프로그램 만들기", "⚡ BUILD TODAY'S PLAN")}
           </button>
