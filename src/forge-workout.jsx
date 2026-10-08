@@ -596,7 +596,6 @@ export default function WorkoutTracker() {
   const exerciseInputRef = useRef(null);
   const pickerRef = useRef(null);
   const swipeStartX = useRef(null);
-  const slideDir = useRef(1); // 새 카드가 들어오는 방향: 1 = 오른쪽에서, -1 = 왼쪽에서
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [onboardStep, setOnboardStep] = useState(() => (needsOnboarding() ? "lang" : null)); // null | "lang" | 0..3(안내 카드)
@@ -633,7 +632,6 @@ export default function WorkoutTracker() {
   }
 
   function goStep(next) {
-    if (typeof onboardStep === "number") slideDir.current = next > onboardStep ? 1 : -1;
     setOnboardStep(next);
   }
 
@@ -1268,16 +1266,14 @@ ${summary}
             </div>
           );
         }
-        const c = cards[onboardStep];
         const last = onboardStep === cards.length - 1;
-        const [title, body] = lang === "en" ? c.en : c.ko;
         return (
           <div style={overlay} data-testid="onboard-card"
             onTouchStart={e => { swipeStartX.current = e.touches[0].clientX; setDragging(true); }}
             onTouchMove={e => {
               if (swipeStartX.current === null) return;
               let dx = e.touches[0].clientX - swipeStartX.current;
-              if (dx > 0 && onboardStep === 0) dx = dx * 0.25; // 첫 장에서 오른쪽으로 밀면 고무줄처럼 저항
+              if ((dx > 0 && onboardStep === 0) || (dx < 0 && last)) dx = dx * 0.25; // 첫 장/마지막 장 끝에서는 고무줄처럼 저항
               setDragX(dx);
             }}
             onTouchEnd={e => {
@@ -1289,12 +1285,21 @@ ${summary}
               else if (dx > 50 && onboardStep > 0) goStep(onboardStep - 1); // 오른쪽으로 밀기 = 이전
             }}
             onTouchCancel={() => { swipeStartX.current = null; setDragging(false); setDragX(0); }}>
-            <style>{`@keyframes obIn { from { opacity: 0; transform: translateX(var(--ob-from, 40px)); } to { opacity: 1; transform: none; } } .ob-slide { animation: obIn 0.28s ease-out; } @media (prefers-reduced-motion: reduce) { .ob-slide { animation: none; } }`}</style>
-            <div style={{ ...card, touchAction: "pan-y", transform: `translateX(${dragX}px)`, opacity: 1 - Math.min(Math.abs(dragX) / 500, 0.4), transition: dragging ? "none" : "transform 0.25s ease, opacity 0.25s ease" }}>
-              <div key={onboardStep} className="ob-slide" style={{ "--ob-from": `${slideDir.current * 40}px` }}>
-              <div style={{ fontSize: "2.6rem", marginBottom: 10, color: "#c8a96e" }}>{c.icon}</div>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 10 }}>{title}</div>
-              <div style={{ fontSize: "0.88rem", color: "#bbb", lineHeight: 1.7, marginBottom: 20, minHeight: 90 }}>{body}</div>
+            <div style={{ ...card, touchAction: "pan-y" }}>
+              {/* 테두리(card)는 고정. 안쪽 설명만 가로 트랙으로 손가락을 따라 미끄러짐 */}
+              <div style={{ margin: "0 -22px 4px", overflow: "hidden" }}>
+                <div style={{ display: "flex", transform: `translateX(calc(${-onboardStep * 100}% + ${dragX}px))`, transition: dragging ? "none" : "transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1)", willChange: "transform" }}>
+                  {cards.map((c, i) => {
+                    const [title, body] = lang === "en" ? c.en : c.ko;
+                    return (
+                      <div key={i} aria-hidden={i !== onboardStep} style={{ flex: "0 0 100%", boxSizing: "border-box", padding: "0 22px" }}>
+                        <div style={{ fontSize: "2.6rem", marginBottom: 10, color: "#c8a96e" }}>{c.icon}</div>
+                        <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 10 }}>{title}</div>
+                        <div style={{ fontSize: "0.88rem", color: "#bbb", lineHeight: 1.7, marginBottom: 20, minHeight: 90 }}>{body}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
                 {cards.map((_, i) => <button key={i} aria-label={`${i + 1}/${cards.length}`} onClick={() => goStep(i)} style={{ width: 10, height: 10, padding: 0, border: "none", cursor: "pointer", borderRadius: 5, background: i === onboardStep ? "#c8a96e" : "#333" }} />)}
