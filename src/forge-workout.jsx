@@ -444,6 +444,9 @@ function bodyTrendLine(log, en) {
   return s;
 }
 
+// 홈 화면에서 부위마다 쓰는 색(나중에 부위별 그림으로 교체 예정)
+const GROUP_COLORS = { chest: "#7a3b2e", back: "#3f6a52", legs: "#2c3f6b", shoulders: "#8a6a2a", arms: "#5a3a63", free: "#3a3a3a" };
+
 function daysAgoLabel(dateStr, lang) {
   const en = lang === "en";
   if (!dateStr) return en ? "No record" : "기록 없음";
@@ -554,7 +557,7 @@ function totalSetsOf(entry) { return entry.rounds.reduce((sum, r) => sum + r.set
 const FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeWMeGqcLBOcyOY0daGJXBuDRuHXXv9ISmUF2HRHIaT1BFrpw/viewform";
 
 export default function WorkoutTracker() {
-  const [tab, setTab] = useState("today");
+  const [tab, setTab] = useState("home");
   const [splashPhase, setSplashPhase] = useState("visible"); // visible → fading → hidden
   const [lang, setLang] = useState(() => loadLang());
   const [sessions, setSessions] = useState(() => loadSessions());
@@ -582,6 +585,7 @@ export default function WorkoutTracker() {
   const [diagramIds, setDiagramIds] = useState(() => new Set()); // 타겟 부위 그림을 펼친 운동 카드
   const [openPanels, setOpenPanels] = useState({ time: false, weight: false, last: false }); // 오늘 탭 접이식 섹션
   const [showSuggest, setShowSuggest] = useState(false);
+  const [homeRoutineId, setHomeRoutineId] = useState(null); // 홈 큰 카드에 보이는 루틴
   const [customExercises, setCustomExercises] = useState(() => loadCustomExercises());
   const [goal, setGoal] = useState(() => loadGoal());
   const [bodyLog, setBodyLog] = useState(() => loadBody());
@@ -757,6 +761,18 @@ export default function WorkoutTracker() {
     setSelectedSubtagId(g.subtags[0].id);
     setExerciseInput("");
     setShowAllPresets(false);
+  }
+
+  // 홈 → '오늘' 탭의 운동 고르는 곳으로 (부위를 눌렀다면 그 부위를 미리 선택)
+  function goPick(gid) {
+    if (gid) selectGroup(gid);
+    setTab("today");
+    setTimeout(scrollToPicker, 150);
+  }
+  function routineLastDate(r) {
+    const names = new Set(r.exercises.map(x => x.exerciseName));
+    const dates = sessions.filter(se => se.entries.some(e => names.has(e.exerciseName))).map(se => se.date).sort();
+    return dates.length ? dates[dates.length - 1] : "";
   }
 
   function saveCustomExercise() {
@@ -1392,10 +1408,106 @@ export default function WorkoutTracker() {
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", padding: "0 20px", overflowX: "auto" }}>
-        {[["today", t("오늘", "Today")], ["history", t("기록", "History")], ["progress", t("진행", "Progress")], ["ai", t("AI 추천", "AI Coach")], ["settings", "⚙"]].map(([key, label]) => (
+        {[["home", t("홈", "Home")], ["today", t("운동", "Workout")], ["history", t("기록", "History")], ["progress", t("진행", "Progress")], ["ai", t("AI 추천", "AI Coach")], ["settings", "⚙"]].map(([key, label]) => (
           <button key={key} className={`tab-btn${tab === key ? " active" : ""}`} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
+
+      {tab === "home" && (() => {
+        const homeRoutine = routines.find(r => r.id === homeRoutineId) || routines[0] || null;
+        const inProgress = todaySession.entries.length;
+        const cardStyle = { background: "#131313", border: "1px solid #262626", borderRadius: 28, padding: 22, display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 18px 40px rgba(0,0,0,0.5)" };
+        const labelStyle = { fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#c8a96e" };
+        const goldBtn = { minHeight: 56, border: "none", borderRadius: 28, background: "#c8a96e", color: "#0a0a0a", fontSize: "1.05rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", fontFamily: "inherit" };
+        const smallCard = { flex: 1, minWidth: 0, textAlign: "left", background: "#131313", border: "1px solid #262626", borderRadius: 24, padding: 18, display: "flex", flexDirection: "column", gap: 14, color: "#f0ede6", cursor: "pointer", fontFamily: "inherit" };
+        const iconCircle = { width: 44, height: 44, borderRadius: 22, background: "#1d1a12", border: "1px solid #3a3226", display: "flex", alignItems: "center", justifyContent: "center" };
+        return (
+          <div style={{ padding: "22px 20px 40px" }}>
+            <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 6 }}>{formatDate(today, lang)}</div>
+            <h1 style={{ margin: "0 0 20px", fontSize: "2.1rem", lineHeight: 1.15, fontWeight: 700 }}>{t("오늘 뭐 할래?", "What's the plan today?")}</h1>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {inProgress > 0 && (
+                <div style={{ ...cardStyle, border: "1px solid #3a3226" }}>
+                  <div>
+                    <div style={labelStyle}>{t("오늘 기록", "IN PROGRESS")}</div>
+                    <div style={{ fontSize: "1.45rem", fontWeight: 700, marginTop: 4 }}>{t(`운동 ${inProgress}개 진행 중`, `${inProgress} exercise${inProgress > 1 ? "s" : ""} logged`)}</div>
+                  </div>
+                  <button type="button" style={goldBtn} onClick={() => setTab("today")}>{t("이어서 기록하기", "Continue logging")}</button>
+                </div>
+              )}
+
+              {homeRoutine ? (
+                <div style={cardStyle}>
+                  <div>
+                    <div style={labelStyle}>{t("내 루틴", "MY ROUTINE")}</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: 700, marginTop: 4, wordBreak: "break-word" }}>{homeRoutine.name}</div>
+                    <div style={{ fontSize: "0.8rem", color: "#9a9a9a", marginTop: 4 }}>
+                      {t(`운동 ${homeRoutine.exercises.length}개`, `${homeRoutine.exercises.length} exercise${homeRoutine.exercises.length > 1 ? "s" : ""}`)}
+                      {routineLastDate(homeRoutine) ? ` · ${t("마지막", "last")} ${daysAgoLabel(routineLastDate(homeRoutine), lang)}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    {homeRoutine.exercises.slice(0, 5).map((x, i) => (
+                      <span key={i} title={exName(x.exerciseName)} style={{ width: 54, height: 54, borderRadius: 27, background: GROUP_COLORS[x.groupId] || "#3a3a3a", border: "2px solid #131313", marginLeft: i === 0 ? 0 : -18, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}>{(MUSCLE_GROUPS.find(g => g.id === x.groupId) || {}).emoji}</span>
+                    ))}
+                    {homeRoutine.exercises.length > 5 && <span style={{ marginLeft: 10, fontSize: "0.8rem", color: "#9a9a9a" }}>+{homeRoutine.exercises.length - 5}</span>}
+                  </div>
+                  <button type="button" style={goldBtn} onClick={() => { loadRoutineToToday(homeRoutine); setTab("today"); }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#0a0a0a" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z" /></svg>
+                    {t("시작하기", "Start")}
+                  </button>
+                  {routines.length > 1 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {routines.map(r => (
+                        <button key={r.id} type="button" className={`chip${r.id === homeRoutine.id ? " active" : ""}`} onClick={() => setHomeRoutineId(r.id)}>{r.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={cardStyle}>
+                  <div>
+                    <div style={labelStyle}>{t("내 루틴", "MY ROUTINE")}</div>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, marginTop: 4 }}>{t("아직 루틴이 없어요", "No routines yet")}</div>
+                    <div style={{ fontSize: "0.82rem", color: "#9a9a9a", marginTop: 6, lineHeight: 1.6 }}>{t("운동을 기록한 뒤 '루틴으로 저장'하면 여기서 한 번에 시작할 수 있어요.", "Log a workout, then tap 'Save as routine' to start it from here in one tap.")}</div>
+                  </div>
+                  <button type="button" style={goldBtn} onClick={() => goPick()}>{t("운동 기록 시작", "Start logging")}</button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 14 }}>
+                <button type="button" style={smallCard} onClick={() => setTab("ai")}>
+                  <span style={iconCircle}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg></span>
+                  <span>
+                    <span style={{ display: "block", fontSize: "1rem", fontWeight: 700 }}>{t("AI가 짜줘", "Ask AI")}</span>
+                    <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{t("말하면 바로 만들어요", "Speak and it builds")}</span>
+                  </span>
+                </button>
+                <button type="button" style={smallCard} onClick={() => goPick()}>
+                  <span style={iconCircle}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></span>
+                  <span>
+                    <span style={{ display: "block", fontSize: "1rem", fontWeight: 700 }}>{t("직접 고르기", "Pick myself")}</span>
+                    <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{t("부위부터 선택", "Start with a body area")}</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 26 }}>
+              <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 12 }}>{t("부위로 찾기", "BROWSE BY AREA")}</div>
+              <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6, margin: "0 -20px", padding: "0 20px 6px" }}>
+                {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
+                  <button key={g.id} type="button" onClick={() => goPick(g.id)} style={{ flexShrink: 0, width: 84, height: 96, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    <span style={{ width: 40, height: 40, borderRadius: 20, background: GROUP_COLORS[g.id] || "#3a3a3a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem" }}>{g.emoji}</span>
+                    {gName(g)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {tab === "today" && (
         <div style={{ padding: "16px 20px" }}>
