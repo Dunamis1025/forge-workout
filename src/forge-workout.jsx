@@ -588,6 +588,7 @@ export default function WorkoutTracker() {
   const [progressGroup, setProgressGroup] = useState("all"); // 진행 탭 부위 필터
   const [progressShowAll, setProgressShowAll] = useState(false);
   const [weightOpen, setWeightOpen] = useState(false); // 진행 탭 체중 카드 펼침
+  const [aiMoreOpen, setAiMoreOpen] = useState(false); // AI 탭 "더 정확하게" 펼침
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
@@ -613,6 +614,7 @@ export default function WorkoutTracker() {
   const importInputRef = useRef(null);
   const exerciseInputRef = useRef(null);
   const swipeStartX = useRef(null);
+  const aiOutRef = useRef(null);
   const recogRef = useRef(null);
   const [listening, setListening] = useState(false);
   const [talkMode, setTalkMode] = useState(false); // true = 말이 끝나면 바로 프로그램을 만듦
@@ -742,6 +744,11 @@ export default function WorkoutTracker() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     setJustAddedId(null);
   }, [justAddedId]);
+
+  // AI 결과가 새로 나오면 화면에서 보이는 위치로 내려감
+  useEffect(() => {
+    if (tab === "ai" && (aiProgram || aiResult) && aiOutRef.current) aiOutRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [aiProgram, aiResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function startRest(entryId, exerciseName, seconds) {
     setRestTimer({ entryId, exerciseName, endAt: Date.now() + seconds * 1000, duration: seconds });
@@ -1041,8 +1048,8 @@ export default function WorkoutTracker() {
     }));
     if (fresh.length === 0) { showToast(t("이미 모두 추가돼 있어요", "All exercises are already added")); return; }
     persistSession({ entries: [...todaySession.entries, ...fresh] });
-    // 한 화면에 다 펼쳐지면 길어지니, 첫 운동만 펼치고 나머지는 접어둠 (제목을 누르면 펼쳐져요)
-    setCollapsedIds(prev => { const next = new Set(prev); fresh.slice(1).forEach(e => next.add(e.id)); fresh[0] && next.delete(fresh[0].id); return next; });
+    // 한 화면에 다 펼쳐지면 길어지니, 새로 불러온 첫 운동만 펼치고 나머지는 접어둠 (제목을 누르면 펼쳐져요)
+    setOpenEntryId(fresh[0].id);
     showToast(t(`'${r.name}' 불러왔어요 (${fresh.length}개)`, `Loaded '${r.name}' (${fresh.length})`));
   }
 
@@ -1437,7 +1444,7 @@ export default function WorkoutTracker() {
         return (
           <div style={{ padding: "22px 20px 40px" }}>
             <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 6 }}>{formatDate(today, lang)}</div>
-            <h1 style={{ margin: "0 0 20px", fontSize: "2.1rem", lineHeight: 1.15, fontWeight: 700 }}>{t("오늘 뭐 할래?", "What's the plan today?")}</h1>
+            <h1 style={{ margin: "0 0 20px", fontSize: "2.1rem", lineHeight: 1.15, fontWeight: 700 }}>{t("오늘은 어떤 운동을 할까요?", "What's the plan today?")}</h1>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {inProgress > 0 && (
@@ -1493,8 +1500,8 @@ export default function WorkoutTracker() {
                 <button type="button" style={smallCard} onClick={() => setTab("ai")}>
                   <span style={iconCircle}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c8a96e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg></span>
                   <span>
-                    <span style={{ display: "block", fontSize: "1rem", fontWeight: 700 }}>{t("AI가 짜줘", "Ask AI")}</span>
-                    <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{t("말하면 바로 만들어요", "Speak and it builds")}</span>
+                    <span style={{ display: "block", fontSize: "1rem", fontWeight: 700 }}>{t("AI 추천받기", "Ask AI")}</span>
+                    <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{t("말하면 바로 만들어드려요", "Speak and it builds")}</span>
                   </span>
                 </button>
                 <button type="button" style={smallCard} onClick={() => goPick()}>
@@ -1676,7 +1683,7 @@ export default function WorkoutTracker() {
                 <div style={{ ...softCard, textAlign: "center", padding: "28px 20px", color: "#9a9a9a", fontSize: "0.9rem", lineHeight: 1.6 }}>{t("아직 기록한 운동이 없어요.", "No exercises logged yet.")}</div>
                 {!moreOpen && routines.length > 0 && routinesCard}
                 <button type="button" onClick={() => openPicker()} style={{ ...bigBtn, background: "#c8a96e", color: "#0a0a0a", border: "none" }}>{t("＋ 운동 추가", "＋ Add exercise")}</button>
-                <button type="button" onClick={() => setTab("ai")} style={{ ...bigBtn, color: "#f0ede6", border: "1px solid #2a2a2a" }}>{t("⚡ AI가 짜줘", "⚡ Let AI plan it")}</button>
+                <button type="button" onClick={() => setTab("ai")} style={{ ...bigBtn, color: "#f0ede6", border: "1px solid #2a2a2a" }}>{t("⚡ AI 추천받기", "⚡ Let AI plan it")}</button>
               </div>
             )}
 
@@ -2013,103 +2020,128 @@ export default function WorkoutTracker() {
         );
       })()}
 
-      {tab === "ai" && (
-        <div style={{ padding: "16px 20px" }}>
-          <div style={{ ...headingStyle, marginBottom: 6 }}>{t("나의 AI 코치", "My AI Coach")}</div>
-          <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 18, lineHeight: 1.6 }}>
-            {t("아래 정보를 넣어두면 더 정확한 추천을 받아요. 하나도 없어도 괜찮아요 — AI가 있는 정보만 가지고 최선의 프로그램을 짜줘요.", "Fill in what you can below for a more accurate plan. Nothing is required — the AI works with whatever you give it.")}
-          </div>
+      {tab === "ai" && (() => {
+        const softCard = { background: "#131313", border: "1px solid #262626", borderRadius: 28 };
+        const goalLabel = GOAL_TYPES.find(g => g.id === goal.type);
+        const fatigueLabel = { good: t("컨디션 좋음", "Feeling good"), ok: t("보통", "OK"), tired: t("피곤함", "Tired") }[todaySession.condition?.fatigue];
+        const minutes = todaySession.condition?.minutesAvailable;
+        const moreSummary = [goalLabel ? (lang === "en" ? goalLabel.en : goalLabel.ko) : "", fatigueLabel || "", minutes ? `${minutes}${t("분", " min")}` : "", bodyLog.length ? `${bodyLog[bodyLog.length - 1].weight}kg` : ""].filter(Boolean).join(" · ");
+        const fieldLabel = { fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.2px", color: "#9a9a9a", margin: "0 0 8px" };
+        const bigBtn = { width: "100%", minHeight: 56, borderRadius: 28, fontSize: "1rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", fontFamily: "inherit" };
+        return (
+          <div style={{ padding: "16px 20px" }}>
+            <h1 style={{ fontSize: "1.9rem", lineHeight: 1.15, fontWeight: 700, margin: "4px 0 6px" }}>{t("AI 코치", "AI Coach")}</h1>
+            <div style={{ fontSize: "0.85rem", color: "#9a9a9a", marginBottom: 18, lineHeight: 1.6 }}>{t("오늘 상태를 말씀해 주시면 운동 프로그램을 만들어 드려요.", "Tell me how you feel today and I'll build a workout.")}</div>
 
-          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("목표 (선택)", "Goal (optional)")}</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            {GOAL_TYPES.map(g => (
-              <button key={g.id} className={`chip${goal.type === g.id ? " active" : ""}`} onClick={() => updateGoal({ type: goal.type === g.id ? "" : g.id })}>
-                {lang === "en" ? g.en : g.ko}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-            <input className="text-input" placeholder={t("목표 수치 (예: -5kg, 체지방 15%)", "Target (e.g. -5kg, 15% body fat)")} value={goal.targetValue} onChange={e => updateGoal({ targetValue: e.target.value })} />
-            <input className="text-input" style={{ maxWidth: 160 }} type="date" value={goal.targetDate} onChange={e => updateGoal({ targetDate: e.target.value })} />
-          </div>
-
-          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("몸 상태 기록 (선택)", "Body Scan (optional)")}</div>
-          <div style={{ background: "#111", border: "1px dashed #2a2a2a", borderRadius: 10, padding: "12px 14px", fontSize: "0.78rem", color: "#777", lineHeight: 1.6, marginBottom: 24 }}>
-            {t("곧 추가돼요: 인바디·Evolt 등 체성분 스캔 결과지를 사진으로 찍으면 자동으로 숫자를 읽어서 기록해줘요. 있으면 더 정밀한 추천을 받을 수 있어요.", "Coming soon: photograph any body-composition scan result (InBody, Evolt, etc.) and it'll be read automatically. Having this gives you a more precise plan.")}
-            <div style={{ marginTop: 8, color: bodyLog.length ? "#c8a96e" : "#555" }}>
-              {bodyLog.length ? t(`⚖️ 최근 체중 ${bodyLog[bodyLog.length - 1].weight}kg — 추천에 반영돼요. (기록은 '오늘' 탭에서)`, `⚖️ Latest weight ${bodyLog[bodyLog.length - 1].weight}kg — used in recommendations. (Log it on the Today tab)`) : t("⚖️ 체중을 '오늘' 탭에서 기록하면 추천에 반영돼요.", "⚖️ Log your weight on the Today tab to include it in recommendations.")}
+            <div style={{ ...softCard, padding: 16, marginBottom: 14 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <textarea className="text-input" rows={3} aria-label={t("오늘 메모", "Today's note")} placeholder={t("예: 시간이 많아요 / 어깨가 뻐근해요", "e.g. I have extra time / shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ flex: 1, minWidth: 0, resize: "none", borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626" }} />
+                {SpeechRec && (
+                  <button onClick={() => toggleVoice(false)} aria-label={listening ? t("음성 입력 끄기", "Stop voice input") : t("음성으로 입력", "Speak your note")} aria-pressed={listening}
+                    style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 26, border: `1px solid ${listening ? "#c8a96e" : "#2a2a2a"}`, background: listening ? "#c8a96e" : "#0d0d0d", color: listening ? "#0a0a0a" : "#c8a96e", fontSize: "1.3rem", cursor: "pointer", boxShadow: listening ? "0 0 0 4px rgba(200,169,110,0.25)" : "none" }}>
+                    {listening ? "■" : "🎤"}
+                  </button>
+                )}
+              </div>
+              {listening && <div style={{ fontSize: "0.75rem", color: "#c8a96e", marginTop: 8 }}>{t("듣는 중… 말씀하세요", "Listening… speak now")}</div>}
             </div>
-          </div>
 
-          <div style={{ fontSize: "0.72rem", color: "#8a7a5c", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>{t("오늘 컨디션 (선택)", "Today's Condition (optional)")}</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-            {[["good", t("컨디션 좋음", "Feeling good")], ["ok", t("보통", "OK")], ["tired", t("피곤함", "Tired")]].map(([id, label]) => (
-              <button key={id} className={`chip${todaySession.condition?.fatigue === id ? " active" : ""}`} onClick={() => updateCondition({ fatigue: todaySession.condition?.fatigue === id ? "" : id })}>{label}</button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
-            <input className="text-input" style={{ maxWidth: 140 }} type="number" inputMode="numeric" placeholder={t("오늘 가용 시간(분)", "Minutes available")} value={todaySession.condition?.minutesAvailable || ""} onChange={e => updateCondition({ minutesAvailable: e.target.value })} />
-            <span style={{ fontSize: "0.72rem", color: "#666" }}>{t("예: 60분", "e.g. 60 min")}</span>
-          </div>
-
-          <div style={{ ...headingStyle, marginBottom: 6 }}>{t("오늘 뭐 하지?", "What should I train today?")}</div>
-          <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: 14 }}>{t("위에 입력한 것 + 지난 운동 기록을 참고해서 AI가 오늘 프로그램을 추천해줘요.", "Uses what you entered above plus your workout history to suggest today's plan.")}</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: SpeechRec ? 6 : 12 }}>
-            <textarea className="text-input" rows={3} placeholder={t("메모 (선택) 예: 오늘 시간 많아요, 어깨가 좀 뻐근해요", "Note (optional), e.g. I have extra time today, shoulders feel tight")} value={aiNote} onChange={e => setAiNote(e.target.value.slice(0, 300))} style={{ flex: 1, minWidth: 0, resize: "vertical" }} />
-            {SpeechRec && (
-              <button onClick={() => toggleVoice(false)} aria-label={listening ? t("음성 입력 끄기", "Stop voice input") : t("음성으로 입력", "Speak your note")} aria-pressed={listening}
-                style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 26, border: `1px solid ${listening ? "#c8a96e" : "#2a2a2a"}`, background: listening ? "#c8a96e" : "#111", color: listening ? "#0a0a0a" : "#c8a96e", fontSize: "1.3rem", cursor: "pointer", boxShadow: listening ? "0 0 0 4px rgba(200,169,110,0.25)" : "none" }}>
-                {listening ? "■" : "🎤"}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button disabled={aiLoading} onClick={() => getAiSuggestion("program")} style={{ ...bigBtn, border: "none", background: "#c8a96e", color: "#0a0a0a", opacity: aiLoading ? 0.6 : 1 }}>
+                {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 오늘 프로그램 만들기", "⚡ Build today's plan")}
               </button>
+              {SpeechRec && (
+                <button disabled={aiLoading} onClick={() => toggleVoice(true)} style={{ ...bigBtn, background: talkMode ? "rgba(200,169,110,0.12)" : "#0a0a0a", border: `1px solid ${talkMode ? "#c8a96e" : "#3a3226"}`, color: "#c8a96e" }}>
+                  {talkMode ? t("■ 듣는 중… 다 말했으면 누르세요", "■ Listening… tap when done") : t("🎤 말로 요청하기", "🎤 Ask by voice")}
+                </button>
+              )}
+              <button disabled={aiLoading} onClick={() => getAiSuggestion("suggest")} style={{ background: "none", border: "none", color: "#9a9a9a", minHeight: 44, fontSize: "0.85rem", cursor: "pointer", fontFamily: "inherit" }}>
+                {t("💬 부위만 추천받기", "💬 Just suggest areas")}
+              </button>
+            </div>
+
+            <div style={{ ...softCard, borderRadius: 24, marginTop: 6, overflow: "hidden" }}>
+              <button type="button" aria-expanded={aiMoreOpen} onClick={() => setAiMoreOpen(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: "14px 18px", minHeight: 60 }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: "0.95rem", fontWeight: 700 }}>{t("더 정확하게 (선택)", "More accurate (optional)")}</span>
+                  <span style={{ display: "block", fontSize: "0.75rem", color: moreSummary ? "#c8a96e" : "#777", marginTop: 2 }}>{moreSummary || t("목표 · 컨디션 · 시간", "Goal · condition · time")}</span>
+                </span>
+                <span style={{ color: "#9a9a9a" }} aria-hidden="true">{aiMoreOpen ? "▴" : "▾"}</span>
+              </button>
+              {aiMoreOpen && (
+                <div style={{ padding: "0 18px 18px" }}>
+                  <div style={fieldLabel}>{t("목표", "GOAL")}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    {GOAL_TYPES.map(g => (
+                      <button key={g.id} className={`chip${goal.type === g.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px" }} onClick={() => updateGoal({ type: goal.type === g.id ? "" : g.id })}>
+                        {lang === "en" ? g.en : g.ko}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <input className="text-input" placeholder={t("목표 수치 (예: -5kg)", "Target (e.g. -5kg)")} value={goal.targetValue} onChange={e => updateGoal({ targetValue: e.target.value })} />
+                    <input className="text-input" style={{ maxWidth: 150 }} type="date" aria-label={t("목표 날짜", "Target date")} value={goal.targetDate} onChange={e => updateGoal({ targetDate: e.target.value })} />
+                  </div>
+
+                  <div style={fieldLabel}>{t("오늘 컨디션", "TODAY'S CONDITION")}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    {[["good", t("컨디션 좋음", "Feeling good")], ["ok", t("보통", "OK")], ["tired", t("피곤함", "Tired")]].map(([id, label]) => (
+                      <button key={id} className={`chip${todaySession.condition?.fatigue === id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px" }} onClick={() => updateCondition({ fatigue: todaySession.condition?.fatigue === id ? "" : id })}>{label}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+                    <input className="text-input" style={{ maxWidth: 170 }} type="number" inputMode="numeric" placeholder={t("가능한 시간(분)", "Minutes available")} value={todaySession.condition?.minutesAvailable || ""} onChange={e => updateCondition({ minutesAvailable: e.target.value })} />
+                    <span style={{ fontSize: "0.75rem", color: "#777" }}>{t("예: 60", "e.g. 60")}</span>
+                  </div>
+
+                  <div style={{ fontSize: "0.75rem", color: bodyLog.length ? "#c8a96e" : "#777", lineHeight: 1.6 }}>
+                    {bodyLog.length ? t(`⚖️ 최근 체중 ${bodyLog[bodyLog.length - 1].weight}kg이 추천에 반영돼요.`, `⚖️ Latest weight ${bodyLog[bodyLog.length - 1].weight}kg is used in recommendations.`) : t("⚖️ 운동 탭 ⋯ 더보기에서 체중을 기록하면 추천에 반영돼요.", "⚖️ Log your weight in Workout → ⋯ More to include it.")}
+                  </div>
+                  <div style={{ fontSize: "0.7rem", color: "#555", marginTop: 6, lineHeight: 1.6 }}>{t("곧 추가: 인바디 결과지를 사진으로 올리면 숫자를 자동으로 읽어요.", "Coming soon: upload a body-scan photo and it's read automatically.")}</div>
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize: "0.7rem", color: "#555", margin: "10px 4px 0", lineHeight: 1.6 }}>{t("입력한 내용(목표·체중 추이·컨디션·메모)은 AI 제공사(현재 Google Gemini)로 전송돼요.", "What you enter (goal, weight trend, condition, note) is sent to the AI provider (currently Google Gemini).")}</div>
+
+            <div ref={aiOutRef} style={{ scrollMarginTop: 12 }} />
+            {aiOff && (
+              <div style={{ marginTop: 16, ...softCard, border: "1px dashed #3a3226", padding: 18, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>
+                <div style={{ color: "#c8a96e", fontWeight: 700, marginBottom: 6 }}>{t("🚧 준비 중", "🚧 Coming soon")}</div>
+                {t("AI 서버 연결이 아직 켜지지 않았어요. 곧 사용할 수 있게 열릴 예정이에요.", "The AI connection isn't switched on yet. It will be available soon.")}
+              </div>
+            )}
+            {aiProgram && (
+              <div style={{ marginTop: 18, ...softCard, border: "1px solid #3a3226", padding: "18px 16px", boxShadow: "0 0 0 5px rgba(200,169,110,0.06)" }}>
+                {aiProgram.summary && <div style={{ fontSize: "0.9rem", color: "#ddd", lineHeight: 1.7, marginBottom: 12 }}>{aiProgram.summary}</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {aiProgram.exercises.map((x, i) => (
+                    <div key={x.name} style={{ display: "flex", alignItems: "center", gap: 12, background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 20, padding: "10px 14px", minHeight: 56 }}>
+                      <span style={{ color: "#c8a96e", fontWeight: 700, width: 18, textAlign: "center" }}>{i + 1}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: "0.95rem", fontWeight: 600 }}>{exName(x.name)}</span>
+                      <span style={{ color: "#9a9a9a", whiteSpace: "nowrap", fontSize: "0.75rem" }}>{x.sets} {setsWord} · {x.restSeconds}{t("초", "s")}</span>
+                    </div>
+                  ))}
+                </div>
+                {aiProgram.caution && (
+                  <div style={{ marginTop: 12, background: "#14110a", border: "1px solid #3a3226", borderRadius: 16, padding: "10px 14px", fontSize: "0.8rem", color: "#e0c488", lineHeight: 1.6 }}>⚠️ {aiProgram.caution}</div>
+                )}
+                <button style={{ ...bigBtn, border: "none", background: "#c8a96e", color: "#0a0a0a", marginTop: 14 }} onClick={() => { loadRoutineToToday(programToRoutine(aiProgram)); setTab("today"); }}>{t("▶ 오늘 기록에 불러오기", "▶ Load into today")}</button>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button className="ghost-btn" style={{ flex: 1, minHeight: 48, borderRadius: 24, fontSize: "0.85rem" }} onClick={saveAiProgramAsRoutine}>{t("💾 루틴으로 저장", "💾 Save routine")}</button>
+                  {canSpeak && <button className="ghost-btn" style={{ flex: 1, minHeight: 48, borderRadius: 24, fontSize: "0.85rem" }} onClick={() => speakProgram(aiProgram)} aria-pressed={speaking}>{speaking ? t("■ 멈추기", "■ Stop") : t("🔊 읽어주기", "🔊 Read aloud")}</button>}
+                </div>
+                <div style={{ fontSize: "0.7rem", color: "#666", marginTop: 12, lineHeight: 1.6 }}>{t("AI가 만든 일반적인 운동 제안이며 의학적 조언이 아니에요. 통증이나 불편함이 있으면 멈추고, 필요하면 전문가와 상담하세요.", "This is a general AI-generated suggestion, not medical advice. If something hurts, stop, and check with a qualified professional if needed.")}</div>
+              </div>
+            )}
+            {aiResult && (
+              <div style={{ marginTop: 16, ...softCard, borderRadius: 24, padding: 18, fontSize: "0.88rem", color: "#ccc", lineHeight: 1.7 }}>{aiResult}</div>
+            )}
+            {aiError && (
+              <div style={{ marginTop: 16, background: "#1a0e0e", border: "1px solid #3a1e1e", borderRadius: 20, padding: 16, fontSize: "0.85rem", color: "#c86e6e" }}>{aiError}</div>
             )}
           </div>
-          {SpeechRec && <div style={{ fontSize: "0.68rem", color: "#555", marginBottom: 12, lineHeight: 1.5 }}>{listening ? t("듣는 중… 말씀하세요", "Listening… speak now") : t("🎤 음성 인식은 브라우저가 소리를 인식 서비스(예: 구글)로 보내서 글자로 바꿔요.", "🎤 Your browser sends the audio to its speech service (e.g. Google) to turn it into text.")}</div>}
-          {SpeechRec && (
-            <button className="ghost-btn" disabled={aiLoading} onClick={() => toggleVoice(true)} style={{ width: "100%", marginBottom: 8, padding: "12px 12px", fontSize: "0.9rem", color: "#c8a96e", borderColor: talkMode ? "#c8a96e" : "#3a3226", background: talkMode ? "rgba(200,169,110,0.12)" : "none" }}>
-              {talkMode ? t("■ 듣는 중… 다 말했으면 누르세요", "■ Listening… tap when done") : t("🎤 말로 시키기 (말하면 바로 만들어요)", "🎤 Ask by voice (builds right after you speak)")}
-            </button>
-          )}
-          <button className="add-btn" disabled={aiLoading} onClick={() => getAiSuggestion("program")} style={{ width: "100%" }}>
-            {aiLoading ? t("생각하는 중...", "Thinking...") : t("⚡ 오늘 프로그램 만들기", "⚡ BUILD TODAY'S PLAN")}
-          </button>
-          <button className="ghost-btn" disabled={aiLoading} onClick={() => getAiSuggestion("suggest")} style={{ width: "100%", marginTop: 8, padding: "10px 12px" }}>
-            {t("💬 어느 부위를 할지 추천만 받기", "💬 Just suggest which areas to train")}
-          </button>
-          <div style={{ fontSize: "0.7rem", color: "#555", marginTop: 8, lineHeight: 1.6 }}>{t("입력한 목표·체중 추이·컨디션·메모가 AI 제공사(현재 Google Gemini)로 전송돼요.", "Your goal, weight trend, condition and note are sent to the AI provider (currently Google Gemini).")}</div>
-          {aiOff && (
-            <div style={{ marginTop: 16, background: "#111", border: "1px dashed #3a3226", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>
-              <div style={{ color: "#c8a96e", fontWeight: 700, marginBottom: 6 }}>{t("🚧 준비 중", "🚧 Coming soon")}</div>
-              {t("AI 서버 연결이 아직 켜지지 않았어요. 곧 사용할 수 있게 열릴 예정이에요.", "The AI connection isn't switched on yet. It will be available soon.")}
-            </div>
-          )}
-          {aiProgram && (
-            <div style={{ marginTop: 16, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16 }}>
-              {aiProgram.summary && <div style={{ fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7, marginBottom: 12 }}>{aiProgram.summary}</div>}
-              {aiProgram.exercises.map((x, i) => (
-                <div key={x.name} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: "1px solid #1e1e1e", fontSize: "0.88rem" }}>
-                  <span style={{ minWidth: 0 }}>{i + 1}. {exName(x.name)}</span>
-                  <span style={{ color: "#888", whiteSpace: "nowrap", fontSize: "0.78rem" }}>{x.sets} {setsWord} · {t("휴식", "rest")} {x.restSeconds}{t("초", "s")}</span>
-                </div>
-              ))}
-              {aiProgram.caution && (
-                <div style={{ marginTop: 12, background: "#14110a", border: "1px solid #3a3226", borderRadius: 8, padding: "10px 12px", fontSize: "0.8rem", color: "#e0c488", lineHeight: 1.6 }}>⚠️ {aiProgram.caution}</div>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-                <button className="add-btn" style={{ flex: 1 }} onClick={() => { loadRoutineToToday(programToRoutine(aiProgram)); setTab("today"); }}>{t("▶ 오늘 기록에 불러오기", "▶ Load into today")}</button>
-                <button className="ghost-btn" onClick={saveAiProgramAsRoutine}>{t("💾 루틴 저장", "💾 Save")}</button>
-                {canSpeak && <button className="ghost-btn" onClick={() => speakProgram(aiProgram)} aria-pressed={speaking}>{speaking ? t("■ 멈추기", "■ Stop") : t("🔊 읽어주기", "🔊 Read aloud")}</button>}
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "#666", marginTop: 12, lineHeight: 1.6 }}>{t("AI가 만든 일반적인 운동 제안이며 의학적 조언이 아니에요. 통증이나 불편함이 있으면 멈추고, 필요하면 전문가와 상담하세요.", "This is a general AI-generated suggestion, not medical advice. If something hurts, stop, and check with a qualified professional if needed.")}</div>
-            </div>
-          )}
-          {aiResult && (
-            <div style={{ marginTop: 16, background: "#111", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16, fontSize: "0.85rem", color: "#ccc", lineHeight: 1.7 }}>{aiResult}</div>
-          )}
-          {aiError && (
-            <div style={{ marginTop: 16, background: "#1a0e0e", border: "1px solid #3a1e1e", borderRadius: 8, padding: 14, fontSize: "0.85rem", color: "#c86e6e" }}>{aiError}</div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {tab === "settings" && (
         <div style={{ padding: "16px 20px" }}>
@@ -2171,7 +2203,7 @@ export default function WorkoutTracker() {
           <div role="dialog" aria-label={t("운동 고르기", "Pick an exercise")} data-testid="picker" style={{ position: "fixed", inset: 0, zIndex: 998, background: "#0a0a0a", overflowY: "auto", padding: "14px 20px calc(28px + env(safe-area-inset-bottom))" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10 }}>
               <button type="button" onClick={goBack} aria-label={t("뒤로", "Back")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#f0ede6", fontSize: "1.6rem", cursor: "pointer" }}>‹</button>
-              <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{groupObj && !q ? `${groupObj.emoji} ${gName(groupObj)}` : t("어느 부위 할래?", "Which area?")}</h2>
+              <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{groupObj && !q ? `${groupObj.emoji} ${gName(groupObj)}` : t("어느 부위를 할까요?", "Which area?")}</h2>
               <button type="button" onClick={closePicker} aria-label={t("닫기", "Close")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 10, height: 52, padding: "0 16px", background: "#131313", border: "1px solid #262626", borderRadius: 26, marginBottom: 16 }}>
