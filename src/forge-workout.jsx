@@ -753,7 +753,7 @@ export default function WorkoutTracker() {
     setNowTick(Date.now());
     const iv = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(iv);
-  }, [tab, todaySession.startTime, todaySession.endTime]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab, todaySession.startTime, todaySession.endTime]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 150);
@@ -765,7 +765,7 @@ export default function WorkoutTracker() {
   // AI 결과가 새로 나오면 화면에서 보이는 위치로 내려감
   useEffect(() => {
     if (tab === "ai" && (aiProgram || aiResult) && aiOutRef.current) aiOutRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [aiProgram, aiResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aiProgram, aiResult]);
 
   function startRest(entryId, exerciseName, seconds) {
     setRestTimer({ entryId, exerciseName, endAt: Date.now() + seconds * 1000, duration: seconds });
