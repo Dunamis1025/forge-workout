@@ -589,6 +589,8 @@ export default function WorkoutTracker() {
   const [progressShowAll, setProgressShowAll] = useState(false);
   const [weightOpen, setWeightOpen] = useState(false); // 진행 탭 체중 카드 펼침
   const [aiMoreOpen, setAiMoreOpen] = useState(false); // AI 탭 "더 정확하게" 펼침
+  const [nowTick, setNowTick] = useState(() => Date.now()); // 남은 운동 시간을 1초마다 다시 계산
+  const [scrolled, setScrolled] = useState(false); // 아래로 내려가면 남은 시간 막대를 화면 위에 고정
   const [justAddedId, setJustAddedId] = useState(null);
   const [cardioType, setCardioType] = useState(CARDIO_TYPES[0]);
   const [cardioMinutes, setCardioMinutes] = useState("");
@@ -744,6 +746,21 @@ export default function WorkoutTracker() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     setJustAddedId(null);
   }, [justAddedId]);
+
+  // 시작/종료 시간이 둘 다 있을 때만 1초마다 시계를 갱신
+  useEffect(() => {
+    if (!(tab === "today" && todaySession.startTime && todaySession.endTime)) return;
+    setNowTick(Date.now());
+    const iv = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [tab, todaySession.startTime, todaySession.endTime]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 150);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // AI 결과가 새로 나오면 화면에서 보이는 위치로 내려감
   useEffect(() => {
@@ -1444,7 +1461,7 @@ export default function WorkoutTracker() {
         return (
           <div style={{ padding: "22px 20px 40px" }}>
             <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 6 }}>{formatDate(today, lang)}</div>
-            <h1 style={{ margin: "0 0 20px", fontSize: "2.1rem", lineHeight: 1.15, fontWeight: 700 }}>{t("오늘은 어떤 운동을 할까요?", "What's the plan today?")}</h1>
+            <h1 style={{ margin: "0 0 20px", fontSize: "1.8rem", lineHeight: 1.2, fontWeight: 700 }}>{t("오늘은 어떤 운동을 할까요?", "What's the plan today?")}</h1>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {inProgress > 0 && (
@@ -1514,6 +1531,23 @@ export default function WorkoutTracker() {
               </div>
             </div>
 
+            {(() => {
+              const past = [...sessions].filter(se => se.date < today && se.entries.length > 0).sort((x, y) => y.date.localeCompare(x.date))[0];
+              if (!past) return null;
+              const names = past.entries.map(e => exName(e.exerciseName));
+              const groupIds = Array.from(new Set(past.entries.map(e => e.groupId)));
+              return (
+                <button type="button" onClick={() => setTab("history")} style={{ ...smallCard, flex: "none", width: "100%", marginTop: 14, flexDirection: "row", alignItems: "center", gap: 14, padding: "14px 18px", minHeight: 72 }}>
+                  <span style={{ display: "flex" }}>{groupIds.slice(0, 3).map((gid, i) => <span key={gid} style={{ marginLeft: i === 0 ? 0 : -14, display: "inline-flex" }}><GroupArt groupId={gid} size={40} border="2px solid #131313" /></span>)}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: "0.72rem", color: "#c8a96e", fontWeight: 600, letterSpacing: "1.2px" }}>{t("최근 운동", "LAST WORKOUT")} · {daysAgoLabel(past.date, lang)}</span>
+                    <span style={{ display: "block", fontSize: "0.88rem", marginTop: 3, color: "#ddd", lineHeight: 1.4 }}>{names.slice(0, 3).join(", ")}{names.length > 3 ? ` ${t(`외 ${names.length - 3}개`, `+${names.length - 3}`)}` : ""}</span>
+                  </span>
+                  <span style={{ color: "#9a9a9a" }} aria-hidden="true">›</span>
+                </button>
+              );
+            })()}
+
             <div style={{ marginTop: 26 }}>
               <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 12 }}>{t("부위로 찾기", "BROWSE BY AREA")}</div>
               <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6, margin: "0 -20px", padding: "0 20px 6px" }}>
@@ -1536,7 +1570,11 @@ export default function WorkoutTracker() {
         const activeId = openEntryId === "none" ? null : (openEntryId && entries.some(e => e.id === openEntryId) ? openEntryId : autoId);
         const summaryOf = e => {
           const done = e.rounds.flatMap(r => r.sets).filter(st => st.reps !== "");
-          if (done.length === 0) return t("아직 시작 전", "Not started");
+          if (done.length === 0) {
+            const h = getExerciseHistory(sessions, e.exerciseName, today);
+            const bs = h ? bestSetOf(h.rounds) : null;
+            return `${t("아직 시작 전", "Not started")}${bs ? ` · ${t("지난번", "last")} ${bs.w > 0 ? `${bs.w}kg × ` : ""}${bs.reps || "—"}` : ""}`;
+          }
           const last = done[done.length - 1];
           return `${done.length}${t("세트 완료", done.length === 1 ? " set done" : " sets done")} · ${last.weight ? `${last.weight}kg × ` : ""}${last.reps}`;
         };
@@ -1573,6 +1611,58 @@ export default function WorkoutTracker() {
               </button>
             </div>
 
+            {(() => {
+              const st = todaySession.startTime, en = todaySession.endTime;
+              const toMs = hhmm => { const [h, m] = hhmm.split(":").map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d.getTime(); };
+              const startMs = st ? toMs(st) : 0;
+              let endMs = en ? toMs(en) : 0;
+              if (st && en && endMs <= startMs) endMs += 86400000; // 자정을 넘기는 운동
+              const rem = st && en ? Math.round((endMs - nowTick) / 1000) : null;
+              const fmt = sec => { const a = Math.abs(sec), h = Math.floor(a / 3600), m = Math.floor((a % 3600) / 60), r = a % 60; const pad = n => String(n).padStart(2, "0"); return h > 0 ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`; };
+              const over = rem !== null && rem < 0;
+              const total = st && en ? Math.max(1, Math.round((endMs - startMs) / 1000)) : 1;
+              const pct = rem === null ? 0 : Math.min(100, Math.max(0, ((total - rem) / total) * 100));
+              const addMin = n => { const base = st ? toMs(st) : Date.now(); const d = new Date(base + n * 60000); persistSession({ endTime: d.toTimeString().slice(0, 5) }); };
+              const inputStyle = { width: "100%", minHeight: 48, borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626", color: "#f0ede6", padding: "0 12px", fontSize: "1.05rem", fontWeight: 700, fontFamily: "inherit", textAlign: "center" };
+              const chipBtn = { minHeight: 40, padding: "0 14px", borderRadius: 20, background: "none", border: "1px solid #3a3226", color: "#c8a96e", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
+              return (
+                <div style={{ background: "#131313", border: `1px solid ${over ? "#6b3030" : "#262626"}`, borderRadius: 24, padding: "14px 16px", marginBottom: 14 }}>
+                  {scrolled && rem !== null && (
+                    <div role="timer" aria-label={t("남은 운동 시간", "Time left")} style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 996, background: over ? "#2a1212" : "#0d0d0d", borderBottom: `1px solid ${over ? "#6b3030" : "#3a3226"}`, padding: "calc(8px + env(safe-area-inset-top)) 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "0.78rem", color: "#9a9a9a" }}>{over ? t("종료 시간 지남", "Over time") : t("남은 시간", "Time left")}</span>
+                      <span style={{ fontFamily: "'Bebas Neue'", fontSize: "1.5rem", letterSpacing: "1px", color: over ? "#e08080" : "#c8a96e" }}>{over ? "+" : ""}{fmt(rem)}</span>
+                      <div style={{ position: "absolute", left: 0, bottom: 0, height: 2, width: `${pct}%`, background: over ? "#e08080" : "#c8a96e" }} />
+                    </div>
+                  )}
+                  {rem !== null && (
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+                      <span style={{ fontSize: "0.78rem", color: "#9a9a9a" }}>{over ? t("종료 시간이 지났어요", "Past your end time") : t("남은 시간", "Time left")}</span>
+                      <span style={{ fontFamily: "'Bebas Neue'", fontSize: "2.1rem", letterSpacing: "1px", color: over ? "#e08080" : "#c8a96e" }}>{over ? "+" : ""}{fmt(rem)}</span>
+                    </div>
+                  )}
+                  {rem !== null && <div style={{ height: 4, borderRadius: 2, background: "#1e1e1e", marginBottom: 12, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: over ? "#e08080" : "#c8a96e" }} /></div>}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <label style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("시작", "Start")}</span>
+                      <input type="time" style={inputStyle} value={st} onChange={e => persistSession({ startTime: e.target.value })} />
+                    </label>
+                    <label style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("종료", "End")}</span>
+                      <input type="time" style={inputStyle} value={en} onChange={e => persistSession({ endTime: e.target.value })} />
+                    </label>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                    {!st && <button type="button" style={{ ...chipBtn, background: "#c8a96e", color: "#0a0a0a", border: "none" }} onClick={() => persistSession({ startTime: nowHHMM() })}>{t("▶ 지금 시작", "▶ Start now")}</button>}
+                    {!en && [45, 60, 90].map(n => <button key={n} type="button" style={chipBtn} onClick={() => addMin(n)}>{t(`+${n}분`, `+${n} min`)}</button>)}
+                    {st && <button type="button" style={chipBtn} onClick={() => persistSession({ endTime: nowHHMM() })}>{t("■ 지금 종료", "■ End now")}</button>}
+                    {(st || en) && <button type="button" style={{ ...chipBtn, color: "#777", borderColor: "#262626" }} onClick={() => persistSession({ startTime: "", endTime: "" })}>{t("지우기", "Clear")}</button>}
+                  </div>
+                  {st && en && !over && <div style={{ fontSize: "0.72rem", color: "#777", marginTop: 8 }}>{t("총", "Total")} {formatDuration(st, en, lang)}</div>}
+                  {!st && !en && <div style={{ fontSize: "0.72rem", color: "#777", marginTop: 8, lineHeight: 1.5 }}>{t("종료 시간까지 정하면 남은 시간이 계속 보여요.", "Set an end time and the time left stays visible.")}</div>}
+                </div>
+              );
+            })()}
+
             {moreOpen && (
               <div style={{ marginBottom: 20 }}>
           {!feedbackDismissed && (sessions.some(s => s.entries.length > 0) || bodyLog.length > 0) && (
@@ -1583,30 +1673,6 @@ export default function WorkoutTracker() {
             </div>
           )}
           <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, marginBottom: 20, overflow: "hidden" }}>
-            {renderPanel("time", t("⏱ 운동 시간", "⏱ Workout time"),
-              todaySession.startTime && todaySession.endTime ? `${todaySession.startTime}–${todaySession.endTime}` : todaySession.startTime ? `${todaySession.startTime}~` : t("선택", "Optional"),
-              <div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("시작 시간", "Start time")}</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input type="time" className="text-input" value={todaySession.startTime} onChange={e => persistSession({ startTime: e.target.value })} />
-                      <button className="ghost-btn" onClick={() => persistSession({ startTime: nowHHMM() })}>{t("지금", "Now")}</button>
-                    </div>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.7rem", color: "#666", marginBottom: 6 }}>{t("종료 시간", "End time")}</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input type="time" className="text-input" value={todaySession.endTime} onChange={e => persistSession({ endTime: e.target.value })} />
-                      <button className="ghost-btn" onClick={() => persistSession({ endTime: nowHHMM() })}>{t("지금", "Now")}</button>
-                    </div>
-                  </div>
-                </div>
-                {todaySession.startTime && todaySession.endTime && (
-                  <div style={{ fontSize: "0.75rem", color: "#888", marginTop: 8 }}>{t("총", "Total")} {formatDuration(todaySession.startTime, todaySession.endTime, lang)}</div>
-                )}
-              </div>
-            )}
             {renderPanel("weight", t("⚖️ 오늘 체중", "⚖️ Today's weight"),
               todayBody ? `${todayBody.weight}kg ✓` : t("미기록", "Not logged"),
               <div>
