@@ -773,8 +773,8 @@ export default function WorkoutTracker() {
   function dismissRest() { setRestTimer(null); }
   function adjustRest(delta) { setRestTimer(rt => (rt ? { ...rt, endAt: rt.endAt + delta * 1000 } : rt)); }
 
-  function openPicker(gid) {
-    if (gid) { selectGroup(gid); setPickerGroup(gid); } else { setPickerGroup(null); setExerciseInput(""); }
+  function openPicker(gid, subId) {
+    if (gid) { selectGroup(gid); setPickerGroup(gid); if (subId) setSelectedSubtagId(subId); } else { setPickerGroup(null); setExerciseInput(""); }
     setTab("today");
     setPickerOpen(true);
   }
@@ -1461,7 +1461,7 @@ export default function WorkoutTracker() {
         return (
           <div style={{ padding: "22px 20px 40px" }}>
             <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 6 }}>{formatDate(today, lang)}</div>
-            <h1 style={{ margin: "0 0 20px", fontSize: "1.8rem", lineHeight: 1.2, fontWeight: 700 }}>{t("오늘은 어떤 운동을 할까요?", "What's the plan today?")}</h1>
+            <h1 style={{ margin: "0 0 20px", fontSize: "1.55rem", lineHeight: 1.25, fontWeight: 700 }}>{t("오늘은 어떤 운동을 할까요?", "What's the plan today?")}</h1>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {inProgress > 0 && (
@@ -1474,7 +1474,40 @@ export default function WorkoutTracker() {
                 </div>
               )}
 
-              {homeRoutine ? (
+              {(() => {
+                const lastAll = getLastDoneMap(sessions, false); // 오늘 한 것도 포함
+                const dayGap = d => (d ? Math.round((new Date(today) - new Date(d)) / 86400000) : null);
+                return (
+                  <div style={{ ...cardStyle, padding: "18px 16px", gap: 14 }}>
+                    <div>
+                      <div style={labelStyle}>{t("부위별 마지막 운동", "LAST TRAINED")}</div>
+                      <div style={{ fontSize: "0.75rem", color: "#9a9a9a", marginTop: 4 }}>{t("금색은 4일 이상 쉰 부위예요. 눌러서 바로 고르세요.", "Gold = 4+ days rest. Tap to pick.")}</div>
+                    </div>
+                    {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
+                      <div key={g.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                        <GroupArt groupId={g.id} size={44} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "0.8rem", fontWeight: 700, margin: "2px 0 8px" }}>{gName(g)}</div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {g.subtags.map(st => {
+                              const gap = dayGap(lastAll[st.id]);
+                              const due = gap !== null && gap >= 4;
+                              return (
+                                <button key={st.id} type="button" onClick={() => openPicker(g.id, st.id)}
+                                  style={{ minHeight: 40, padding: "6px 12px", borderRadius: 20, background: due ? "#1d1a12" : "#0d0d0d", border: `1px solid ${due ? "#c8a96e" : "#262626"}`, color: due ? "#e0c488" : "#ccc", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                                  {stName(st)} <span style={{ color: due ? "#c8a96e" : gap === null ? "#666" : "#888", fontWeight: 700 }}>· {daysAgoLabel(lastAll[st.id], lang)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {homeRoutine && (
                 <div style={cardStyle}>
                   <div>
                     <div style={labelStyle}>{t("내 루틴", "MY ROUTINE")}</div>
@@ -1501,15 +1534,6 @@ export default function WorkoutTracker() {
                       ))}
                     </div>
                   )}
-                </div>
-              ) : (
-                <div style={cardStyle}>
-                  <div>
-                    <div style={labelStyle}>{t("내 루틴", "MY ROUTINE")}</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, marginTop: 4 }}>{t("아직 루틴이 없어요", "No routines yet")}</div>
-                    <div style={{ fontSize: "0.82rem", color: "#9a9a9a", marginTop: 6, lineHeight: 1.6 }}>{t("운동을 기록한 뒤 '루틴으로 저장'하면 여기서 한 번에 시작할 수 있어요.", "Log a workout, then tap 'Save as routine' to start it from here in one tap.")}</div>
-                  </div>
-                  <button type="button" style={goldBtn} onClick={() => goPick()}>{t("운동 기록 시작", "Start logging")}</button>
                 </div>
               )}
 
@@ -1547,18 +1571,6 @@ export default function WorkoutTracker() {
                 </button>
               );
             })()}
-
-            <div style={{ marginTop: 26 }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "1.5px", color: "#9a9a9a", marginBottom: 12 }}>{t("부위로 찾기", "BROWSE BY AREA")}</div>
-              <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6, margin: "0 -20px", padding: "0 20px 6px" }}>
-                {MUSCLE_GROUPS.filter(g => g.id !== "free").map(g => (
-                  <button key={g.id} type="button" onClick={() => goPick(g.id)} style={{ flexShrink: 0, width: 88, height: 104, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                    <GroupArt groupId={g.id} size={52} />
-                    {gName(g)}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         );
       })()}
@@ -2254,6 +2266,8 @@ export default function WorkoutTracker() {
         const q = exerciseInput.trim();
         const rowBtn = { width: "100%", minHeight: 56, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 18px", fontSize: "1rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" };
         const groupObj = pickerGroup ? MUSCLE_GROUPS.find(g => g.id === pickerGroup) : null;
+        const lastAll = getLastDoneMap(sessions, false);
+        const groupLast = g => { const ds = g.subtags.map(st => lastAll[st.id]).filter(Boolean).sort(); return ds.length ? ds[ds.length - 1] : ""; };
         const goBack = () => { if (q) setExerciseInput(""); else if (pickerGroup) setPickerGroup(null); else closePicker(); };
         const custom = customExercises[selectedSubtagId] || [];
         const presets = (EXERCISE_PRESETS[selectedSubtagId] || []).filter(n => !custom.includes(n));
@@ -2301,7 +2315,8 @@ export default function WorkoutTracker() {
                   <button key={g.id} type="button" onClick={() => { selectGroup(g.id); setPickerGroup(g.id); }}
                     style={{ height: 158, background: "#131313", border: g.id === "free" ? "1px dashed #3a3226" : "1px solid #262626", borderRadius: 28, color: g.id === "free" ? "#c8a96e" : "#f0ede6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                     <GroupArt groupId={g.id} size={76} />
-                    {gName(g)}
+                    <span>{gName(g)}</span>
+                    {g.id !== "free" && <span style={{ fontSize: "0.72rem", color: "#9a9a9a", fontWeight: 500, marginTop: -6 }}>{t("마지막", "last")} {daysAgoLabel(groupLast(g), lang)}</span>}
                   </button>
                 ))}
               </div>
@@ -2310,7 +2325,7 @@ export default function WorkoutTracker() {
                 {groupObj.id !== "free" && (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
                     {groupObj.subtags.map(st => (
-                      <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px", fontSize: "0.85rem" }} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{stName(st)}</button>
+                      <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px", fontSize: "0.85rem" }} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{stName(st)} · {daysAgoLabel(lastAll[st.id], lang)}</button>
                     ))}
                   </div>
                 )}
