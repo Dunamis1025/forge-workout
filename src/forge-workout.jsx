@@ -589,6 +589,8 @@ export default function WorkoutTracker() {
   const [progressShowAll, setProgressShowAll] = useState(false);
   const [weightOpen, setWeightOpen] = useState(false); // 진행 탭 체중 카드 펼침
   const [aiMoreOpen, setAiMoreOpen] = useState(false); // AI 탭 "더 정확하게" 펼침
+  const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
+  const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
   const [nowTick, setNowTick] = useState(() => Date.now()); // 남은 운동 시간을 1초마다 다시 계산
   const [scrolled, setScrolled] = useState(false); // 아래로 내려가면 남은 시간 막대를 화면 위에 고정
   const [justAddedId, setJustAddedId] = useState(null);
@@ -616,6 +618,7 @@ export default function WorkoutTracker() {
   const importInputRef = useRef(null);
   const exerciseInputRef = useRef(null);
   const swipeStartX = useRef(null);
+  const cardSwipeRef = useRef({ x: 0, y: 0, mode: null }); // 운동 카드 스와이프 삭제용
   const aiOutRef = useRef(null);
   const recogRef = useRef(null);
   const [listening, setListening] = useState(false);
@@ -1635,7 +1638,7 @@ export default function WorkoutTracker() {
               const total = st && en ? Math.max(1, Math.round((endMs - startMs) / 1000)) : 1;
               const pct = rem === null ? 0 : Math.min(100, Math.max(0, ((total - rem) / total) * 100));
               const addMin = n => { const base = st ? toMs(st) : Date.now(); const d = new Date(base + n * 60000); persistSession({ endTime: d.toTimeString().slice(0, 5) }); };
-              const inputStyle = { width: "100%", minHeight: 48, borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626", color: "#f0ede6", padding: "0 12px", fontSize: "1.05rem", fontWeight: 700, fontFamily: "inherit", textAlign: "center" };
+              const inputStyle = { display: "block", width: "100%", minWidth: 0, boxSizing: "border-box", WebkitAppearance: "none", appearance: "none", minHeight: 48, borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626", color: "#f0ede6", padding: "0 12px", fontSize: "1.05rem", fontWeight: 700, fontFamily: "inherit", textAlign: "center" };
               const chipBtn = { minHeight: 40, padding: "0 14px", borderRadius: 20, background: "none", border: "1px solid #3a3226", color: "#c8a96e", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
               return (
                 <div style={{ background: "#131313", border: `1px solid ${over ? "#6b3030" : "#262626"}`, borderRadius: 24, padding: "14px 16px", marginBottom: 14 }}>
@@ -1653,12 +1656,12 @@ export default function WorkoutTracker() {
                     </div>
                   )}
                   {rem !== null && <div style={{ height: 4, borderRadius: 2, background: "#1e1e1e", marginBottom: 12, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: over ? "#e08080" : "#c8a96e" }} /></div>}
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <label style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 10 }}>
+                    <label style={{ minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("시작", "Start")}</span>
                       <input type="time" style={inputStyle} value={st} onChange={e => persistSession({ startTime: e.target.value })} />
                     </label>
-                    <label style={{ flex: 1, minWidth: 0 }}>
+                    <label style={{ minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("종료", "End")}</span>
                       <input type="time" style={inputStyle} value={en} onChange={e => persistSession({ endTime: e.target.value })} />
                     </label>
@@ -1780,10 +1783,36 @@ export default function WorkoutTracker() {
                 const bodyKey = bodyKeyForEntry(entry);
                 const bwWord = t("맨몸", "BW");
                 const isOpen = entry.id === activeId;
+                const armed = swipeOpenId === entry.id; // 삭제/취소 버튼이 열린 상태
+                const dragging = swipe && swipe.id === entry.id;
+                const shift = dragging ? swipe.dx : armed ? 168 : 0;
+                const onSwipeStart = e => { const t0 = e.touches[0]; cardSwipeRef.current = { x: t0.clientX, y: t0.clientY, mode: null }; };
+                const onSwipeMove = e => {
+                  const r = cardSwipeRef.current, t0 = e.touches[0];
+                  const dx = t0.clientX - r.x, dy = t0.clientY - r.y;
+                  if (r.mode === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) r.mode = Math.abs(dx) > Math.abs(dy) ? "h" : "v"; // 가로로 밀면 스와이프, 세로면 그냥 스크롤
+                  if (r.mode === "h") {
+                    if (swipeOpenId && swipeOpenId !== entry.id) setSwipeOpenId(null);
+                    setSwipe({ id: entry.id, dx: Math.max(0, Math.min(168, (armed ? 168 : 0) + dx)) });
+                  }
+                };
+                const onSwipeEnd = () => {
+                  const r = cardSwipeRef.current;
+                  if (r.mode === "h" && dragging) setSwipeOpenId(swipe.dx > 70 ? entry.id : null); // 충분히 밀었으면 열어둠
+                  setSwipe(null); r.mode = null;
+                };
                 return (
-                  <div key={entry.id} id={`entry-${entry.id}`} style={{ background: "#131313", border: `1px solid ${isOpen ? "#3a3226" : "#262626"}`, borderRadius: isOpen ? 28 : 24, padding: isOpen ? "16px 14px 16px" : "12px 16px", boxShadow: isOpen ? "0 0 0 5px rgba(200,169,110,0.06)" : "none" }}>
-                    <button type="button" aria-expanded={isOpen} onClick={() => setOpenEntryId(isOpen ? "none" : entry.id)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: 0, minHeight: 48, marginBottom: isOpen ? 12 : 0 }}>
+                  <div key={entry.id} id={`entry-${entry.id}`} style={{ position: "relative", borderRadius: isOpen ? 28 : 24, overflow: shift > 0 ? "hidden" : "visible" }}>
+                    {shift > 0 && (
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 168, display: "flex", alignItems: "center", gap: 8, padding: "0 8px" }}>
+                        <button type="button" onClick={() => { removeEntry(entry.id); setSwipeOpenId(null); }} style={{ flex: 1, height: 56, borderRadius: 20, border: "none", background: "#b23b3b", color: "#fff", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("삭제", "Delete")}</button>
+                        <button type="button" onClick={() => setSwipeOpenId(null)} style={{ flex: 1, height: 56, borderRadius: 20, border: "1px solid #3a3a3a", background: "#1a1a1a", color: "#ddd", fontSize: "0.95rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("취소", "Cancel")}</button>
+                      </div>
+                    )}
+                    <div style={{ background: "#131313", border: `1px solid ${isOpen ? "#3a3226" : "#262626"}`, borderRadius: isOpen ? 28 : 24, padding: isOpen ? "16px 14px 16px" : "12px 16px", boxShadow: isOpen ? "0 0 0 5px rgba(200,169,110,0.06)" : "none", transform: shift ? `translateX(${shift}px)` : "none", transition: dragging ? "none" : "transform 0.25s ease" }}>
+                    <button type="button" aria-expanded={isOpen} onClick={() => { if (armed) { setSwipeOpenId(null); return; } setOpenEntryId(isOpen ? "none" : entry.id); }}
+                      onTouchStart={onSwipeStart} onTouchMove={onSwipeMove} onTouchEnd={onSwipeEnd} onTouchCancel={onSwipeEnd}
+                      style={{ touchAction: "pan-y", width: "100%", display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: 0, minHeight: 48, marginBottom: isOpen ? 12 : 0 }}>
                       <GroupArt groupId={entry.groupId} size={isOpen ? 52 : 48} />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: "block", fontSize: isOpen ? "1.1rem" : "1rem", fontWeight: 700 }}>{exName(entry.exerciseName)}</span>
@@ -1881,9 +1910,10 @@ export default function WorkoutTracker() {
                     )}
                     {isOpen && (
                       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-                        <button className="ghost-btn" onClick={() => removeEntry(entry.id)}>{t("이 운동 삭제", "Delete this exercise")}</button>
+                        <button className="ghost-btn" onClick={() => { if (window.confirm(t(`'${exName(entry.exerciseName)}' 운동을 삭제할까요?`, `Delete '${exName(entry.exerciseName)}'?`))) removeEntry(entry.id); }}>{t("이 운동 삭제", "Delete this exercise")}</button>
                       </div>
                     )}
+                    </div>
                   </div>
                 );
               })}
