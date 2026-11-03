@@ -260,10 +260,66 @@ const EXERCISE_BODY_OVERRIDE = {
 };
 // 어떤 부위 그림을 보여줄지: 운동 이름이 프리셋에 있으면 그 부위 기준(직접 타이핑해서 엉뚱한 부위로 저장된 기록도 올바르게 보임), 아니면 저장된 부위
 function bodyKeyForEntry(entry) {
+  if (entry.bodyKey && BODY_MAP[entry.bodyKey]) return entry.bodyKey; // 사용자가 직접 정한 타겟 부위가 최우선
   if (EXERCISE_BODY_OVERRIDE[entry.exerciseName]) return EXERCISE_BODY_OVERRIDE[entry.exerciseName];
   const subs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(entry.exerciseName));
   if (subs.length === 0 || subs.includes(entry.subtagId)) return entry.subtagId;
   return subs[0];
+}
+// 새 운동을 추가할 때 사용자가 고르는 타겟 부위. sub = 기록에 저장할 세부 부위(부위별 마지막 운동 보드에 반영됨)
+const TARGETS = {
+  chest_upper: { ko: "윗가슴", en: "Upper chest", sub: "chest_upper" },
+  chest_mid: { ko: "중간가슴", en: "Mid chest", sub: "chest_mid" },
+  chest_lower: { ko: "아랫가슴", en: "Lower chest", sub: "chest_lower" },
+  back_lat: { ko: "광배근", en: "Lats", sub: "back_lat" },
+  back_row: { ko: "등 두께(로우)", en: "Rows", sub: "back_row" },
+  traps: { ko: "승모근", en: "Traps", sub: "back_row" },
+  legs_quad: { ko: "허벅지 앞", en: "Quads", sub: "legs_quad" },
+  legs_ham: { ko: "허벅지 뒤", en: "Hamstrings", sub: "legs_ham" },
+  calves: { ko: "종아리", en: "Calves", sub: "legs_quad" },
+  shoulders_all: { ko: "어깨", en: "Shoulders", sub: "shoulders_all" },
+  arms_biceps: { ko: "이두", en: "Biceps", sub: "arms_biceps" },
+  arms_triceps: { ko: "삼두", en: "Triceps", sub: "arms_triceps" },
+  abs: { ko: "복근", en: "Abs", sub: "free_any" },
+};
+const TARGET_GROUPS = [
+  { id: "chest", ko: "가슴", en: "Chest", art: "chest", keys: ["chest_upper", "chest_mid", "chest_lower"] },
+  { id: "back", ko: "등", en: "Back", art: "back", keys: ["back_lat", "back_row", "traps"] },
+  { id: "legs", ko: "다리", en: "Legs", art: "legs", keys: ["legs_quad", "legs_ham", "calves"] },
+  { id: "shoulders", ko: "어깨", en: "Shoulders", art: "shoulders", keys: ["shoulders_all"] },
+  { id: "arms", ko: "팔", en: "Arms", art: "arms", keys: ["arms_biceps", "arms_triceps"] },
+  { id: "core", ko: "복근/코어", en: "Abs / Core", art: "free", keys: ["abs"] },
+];
+// 목록(프리셋)에 있는 운동인지 — 아니면 사용자가 직접 만든 운동이라 타겟 부위를 바꿀 수 있음
+function isPresetExercise(name) {
+  return !!EXERCISE_BODY_OVERRIDE[name] || Object.keys(EXERCISE_PRESETS).some(k => EXERCISE_PRESETS[k].includes(name));
+}
+// 타겟 부위 고르는 칩 묶음 (새 운동 추가 화면, 기록 카드에서 공통으로 사용)
+function TargetChips({ value, onPick, lang }) {
+  const en = lang === "en";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {TARGET_GROUPS.map(g => (
+        <div key={g.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <GroupArt groupId={g.art} size={40} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#9a9a9a", margin: "2px 0 8px" }}>{en ? g.en : g.ko}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {g.keys.map(k => {
+                const on = value === k;
+                return (
+                  <button key={k} type="button" aria-pressed={on} onClick={() => onPick(k)}
+                    style={{ minHeight: 44, padding: "8px 16px", borderRadius: 22, background: on ? "#c8a96e" : "#0d0d0d", color: on ? "#0a0a0a" : "#f0ede6", border: `1px solid ${on ? "#c8a96e" : "#262626"}`, fontSize: "0.88rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {en ? TARGETS[k].en : TARGETS[k].ko}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 // 유튜브 검색 링크 (검색어를 인코딩해서 연결만 함 — API 키/비용 없음)
 function youtubeSearchUrl(exerciseName, lang) {
@@ -331,6 +387,7 @@ function normalizeSessions(raw) {
       exerciseName: e.exerciseName,
       restSeconds: e.restSeconds || DEFAULT_REST,
       ...(typeof e.bodyweight === "boolean" ? { bodyweight: e.bodyweight } : {}), // 맨몸 표시(선택). 없으면 운동 이름으로 자동 판단
+      ...(e.bodyKey && typeof e.bodyKey === "string" ? { bodyKey: e.bodyKey } : {}), // 직접 만든 운동의 타겟 부위(선택)
       rounds: e.rounds && e.rounds.length ? e.rounds : [{ id: uid(), sets: e.sets || [{ weight: "", reps: "" }] }],
     })),
   })).filter(s => s.date);
@@ -589,6 +646,9 @@ export default function WorkoutTracker() {
   const [progressShowAll, setProgressShowAll] = useState(false);
   const [weightOpen, setWeightOpen] = useState(false); // 진행 탭 체중 카드 펼침
   const [aiMoreOpen, setAiMoreOpen] = useState(false); // AI 탭 "더 정확하게" 펼침
+  const [targetPick, setTargetPick] = useState(null); // 새 운동 이름을 입력해서 타겟 부위를 고르는 중: { name }
+  const [targetChoice, setTargetChoice] = useState("");
+  const [targetEditId, setTargetEditId] = useState(null); // 타겟 부위를 바꾸는 중인 기록 카드
   const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
   const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
   const [nowTick, setNowTick] = useState(() => Date.now()); // 남은 운동 시간을 1초마다 다시 계산
@@ -820,11 +880,44 @@ export default function WorkoutTracker() {
 
   // addEntry()            = 입력칸의 이름으로 추가
   // addEntry("벤치", "id")  = 목록에서 이름을 직접 눌렀을 때
-  function addEntry(nameArg, subArg) {
+  // 예전 기록에서 같은 이름의 운동(가장 최근)을 찾음 — 직접 만든 운동의 타겟 부위를 기억하려고
+  function findPastEntry(canon) {
+    const ds = [...sessions].sort((x, y) => y.date.localeCompare(x.date));
+    for (const se of ds) { const e = se.entries.find(en => en.exerciseName === canon); if (e) return e; }
+    return null;
+  }
+  function isKnownExercise(canon) {
+    return isPresetExercise(canon) || Object.values(customExercises).some(l => (l || []).includes(canon)) || !!findPastEntry(canon);
+  }
+  // "직접 추가": 처음 보는 이름이면 타겟 부위를 먼저 물어봄
+  function requestAddTyped() {
+    const raw = exerciseInput.trim();
+    if (!raw) { showToast(t("운동 이름을 입력해주세요", "Enter an exercise name")); return; }
+    if (isKnownExercise(canonicalName(raw))) { addEntry(); return; }
+    setTargetPick({ name: raw });
+    setTargetChoice(pickerGroup && TARGETS[selectedSubtagId] ? selectedSubtagId : ""); // 부위 목록에서 들어왔으면 그 부위를 미리 선택
+  }
+  function confirmTarget() {
+    if (!targetPick || !targetChoice) return;
+    addEntry(targetPick.name, TARGETS[targetChoice].sub, targetChoice);
+    setTargetPick(null);
+  }
+  function setEntryTarget(entryId, key) {
+    const tg = TARGETS[key];
+    if (!tg) return;
+    const groupId = (MUSCLE_GROUPS.find(g => g.subtags.some(st => st.id === tg.sub)) || { id: "free" }).id;
+    persistSession({ entries: todaySession.entries.map(e => (e.id === entryId ? { ...e, subtagId: tg.sub, groupId, bodyKey: key } : e)) });
+    setTargetEditId(null);
+    showToast(t("타겟 부위를 바꿨어요", "Target muscle updated"));
+  }
+
+  function addEntry(nameArg, subArg, bodyArg) {
     const rawName = typeof nameArg === "string" ? nameArg : exerciseInput;
-    const subPicked = typeof subArg === "string" ? subArg : selectedSubtagId;
     if (!rawName.trim()) { showToast(t("운동 이름을 입력해주세요", "Enter an exercise name")); return; }
     const canon = canonicalName(rawName);
+    const past = findPastEntry(canon);
+    const subPicked = typeof subArg === "string" ? subArg : (past ? past.subtagId : selectedSubtagId);
+    const bodyKey = typeof bodyArg === "string" ? bodyArg : (past && past.bodyKey) || "";
     // 직접 타이핑한 이름이 프리셋 운동이면 그 운동의 원래 부위로 저장 (예: 가슴 탭에서 '풀업'을 쳐도 등으로 기록)
     const presetSubs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(canon));
     const subtagId = presetSubs.length === 0 || presetSubs.includes(subPicked) ? subPicked : presetSubs[0];
@@ -834,6 +927,7 @@ export default function WorkoutTracker() {
       groupId,
       subtagId,
       exerciseName: canon, // 영어로 입력/선택해도 한글 이름으로 저장 → 기록이 갈라지지 않음
+      ...(bodyKey ? { bodyKey } : {}),
       restSeconds: DEFAULT_REST,
       rounds: [{ id: uid(), sets: [{ weight: "", reps: "" }] }],
     };
@@ -841,6 +935,7 @@ export default function WorkoutTracker() {
     setExerciseInput("");
     setOpenEntryId(entry.id); // 방금 추가한 운동을 펼침
     setPickerOpen(false);
+    setTargetPick(null);
     setJustAddedId(entry.id);
     showToast(t("추가됐어요 💪", "Added 💪"));
   }
@@ -1832,10 +1927,21 @@ export default function WorkoutTracker() {
                             {t("🎯 타겟 부위", "🎯 Target muscles")} {diagramIds.has(entry.id) ? "▴" : "▾"}
                           </button>
                         )}
+                        {!isPresetExercise(entry.exerciseName) && (
+                          <button className="ghost-btn" style={{ fontSize: "0.78rem", padding: "7px 12px", color: targetEditId === entry.id ? "#c8a96e" : "#aaa", borderColor: targetEditId === entry.id ? "#c8a96e" : "#2a2a2a" }} onClick={() => setTargetEditId(targetEditId === entry.id ? null : entry.id)}>
+                            {BODY_MAP[bodyKey] ? t("✏️ 타겟 바꾸기", "✏️ Change target") : t("🎯 타겟 부위 정하기", "🎯 Set target muscle")}
+                          </button>
+                        )}
                         <a className="ghost-btn" href={youtubeSearchUrl(entry.exerciseName, lang)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.78rem", padding: "7px 12px", color: "#aaa", textDecoration: "none", display: "inline-block" }}>
                           {t("▶ 동작 영상 보기", "▶ How-to video")}
                         </a>
                       </div>
+                      {targetEditId === entry.id && (
+                        <div style={{ background: "#0d0d0d", border: "1px solid #262626", borderRadius: 20, padding: 14, marginBottom: 12 }}>
+                          <div style={{ fontSize: "0.78rem", color: "#9a9a9a", marginBottom: 12 }}>{t("이 운동이 주로 쓰는 근육을 골라 주세요.", "Pick the muscle this exercise mainly trains.")}</div>
+                          <TargetChips value={bodyKey} onPick={k => setEntryTarget(entry.id, k)} lang={lang} />
+                        </div>
+                      )}
                       {BODY_MAP[bodyKey] && diagramIds.has(entry.id) && <BodyDiagram bodyKey={bodyKey} lang={lang} />}
                       {history ? (() => {
                         const best = bestSetOf(history.rounds);
@@ -2310,6 +2416,7 @@ export default function WorkoutTracker() {
         const visible = showAllPresets ? list : baseList.slice(0, PRESET_VISIBLE);
         const hiddenCount = list.length - visible.length;
         return (
+          <>
           <div role="dialog" aria-label={t("운동 고르기", "Pick an exercise")} data-testid="picker" style={{ position: "fixed", inset: 0, zIndex: 998, background: "#0a0a0a", overflowY: "auto", padding: "14px 20px calc(28px + env(safe-area-inset-bottom))" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10 }}>
               <button type="button" onClick={goBack} aria-label={t("뒤로", "Back")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#f0ede6", fontSize: "1.6rem", cursor: "pointer" }}>‹</button>
@@ -2334,7 +2441,7 @@ export default function WorkoutTracker() {
                     </button>
                   );
                 })}
-                <button type="button" style={{ ...rowBtn, border: "1px dashed #3a3226", color: "#c8a96e" }} onClick={() => addEntry()}>
+                <button type="button" style={{ ...rowBtn, border: "1px dashed #3a3226", color: "#c8a96e" }} onClick={requestAddTyped}>
                   <span style={{ minWidth: 0 }}>＋ “{exerciseInput.trim()}” {t("직접 추가", "add as typed")}</span>
                 </button>
                 <button type="button" className="ghost-btn" style={{ alignSelf: "flex-end", minHeight: 44 }} onClick={saveCustomExercise}>{t("★ 이 이름을 내 목록에 저장", "★ Save to My Exercises")}</button>
@@ -2380,6 +2487,24 @@ export default function WorkoutTracker() {
               </div>
             )}
           </div>
+          {targetPick && (
+            <div role="dialog" aria-label={t("타겟 부위 고르기", "Pick the target muscle")} data-testid="target-pick" style={{ position: "fixed", inset: 0, zIndex: 999, background: "#0a0a0a", overflowY: "auto", padding: "14px 20px calc(28px + env(safe-area-inset-bottom))" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10 }}>
+                <button type="button" onClick={() => setTargetPick(null)} aria-label={t("뒤로", "Back")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#f0ede6", fontSize: "1.6rem", cursor: "pointer" }}>‹</button>
+                <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{t("타겟 부위를 골라 주세요", "Pick the target muscle")}</h2>
+              </div>
+              <div style={{ background: "#131313", border: "1px solid #3a3226", borderRadius: 24, padding: "14px 18px", marginBottom: 18 }}>
+                <div style={{ fontSize: "1.05rem", fontWeight: 700 }}>“{targetPick.name}”</div>
+                <div style={{ fontSize: "0.78rem", color: "#9a9a9a", marginTop: 4, lineHeight: 1.5 }}>{t("목록에 없는 새 운동이에요. 주로 어느 근육을 쓰나요? 다음부터는 기억해요.", "A new exercise. Which muscle does it mainly train? It will be remembered.")}</div>
+              </div>
+              <TargetChips value={targetChoice} onPick={setTargetChoice} lang={lang} />
+              <button type="button" disabled={!targetChoice} onClick={confirmTarget} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, marginTop: 24, cursor: "pointer", fontFamily: "inherit", opacity: targetChoice ? 1 : 0.4 }}>
+                {targetChoice ? t(`${TARGETS[targetChoice].ko}로 추가`, `Add as ${TARGETS[targetChoice].en}`) : t("부위를 골라 주세요", "Pick a muscle")}
+              </button>
+              <button type="button" onClick={() => { const n = targetPick.name; setTargetPick(null); addEntry(n); }} style={{ width: "100%", minHeight: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "0.88rem", marginTop: 8, cursor: "pointer", fontFamily: "inherit" }}>{t("나중에 정할게요", "Decide later")}</button>
+            </div>
+          )}
+          </>
         );
       })()}
 
