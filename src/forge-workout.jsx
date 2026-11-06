@@ -568,6 +568,19 @@ function formatDate(dateStr, lang) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
+function minutesBetween(start, end) {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60;
+  return mins;
+}
+function addMinutesHHMM(start, mins) {
+  const [sh, sm] = start.split(":").map(Number);
+  const total = (sh * 60 + sm + mins) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 function formatDuration(start, end, lang) {
   if (!start || !end) return null;
   const [sh, sm] = start.split(":").map(Number);
@@ -685,6 +698,7 @@ export default function WorkoutTracker() {
   const [targetPick, setTargetPick] = useState(null); // 새 운동 이름을 입력해서 타겟 부위를 고르는 중: { name }
   const [targetChoice, setTargetChoice] = useState("");
   const [targetEditId, setTargetEditId] = useState(null); // 타겟 부위를 바꾸는 중인 기록 카드
+  const [durEdit, setDurEdit] = useState(null); // 총 운동 시간을 고치는 중이면 입력값(분, 문자열), 아니면 null
   const [summaryOpen, setSummaryOpen] = useState(false); // 운동 마치기 요약 화면
   const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
   const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
@@ -947,7 +961,41 @@ export default function WorkoutTracker() {
     setOpenEntryId("none");
     setSummaryOpen(true);
   }
+  // 총 운동 시간 직접 수정: 시작 시간은 그대로 두고 종료 시간 = 시작 + 입력한 분
+  function openDurEdit() {
+    const cur = minutesBetween(todaySession.startTime, todaySession.endTime);
+    setDurEdit(cur !== null ? String(cur) : "");
+  }
+  function applyDuration() {
+    const m = Math.round(Number(durEdit));
+    if (!todaySession.startTime || !durEdit || isNaN(m) || m < 1 || m > 1439) { showToast(t("1~1439분 사이로 입력해주세요", "Enter 1–1439 minutes")); return; }
+    persistSession({ endTime: addMinutesHHMM(todaySession.startTime, m) });
+    setDurEdit(null);
+    showToast(t("운동 시간을 고쳤어요", "Duration updated"));
+  }
+  function renderDurEditor() {
+    if (durEdit === null) return null;
+    const m = Math.round(Number(durEdit));
+    const ok = durEdit !== "" && !isNaN(m) && m >= 1 && m <= 1439;
+    return (
+      <div data-testid="dur-editor" style={{ background: "#0d0d0d", border: "1px solid #3a3226", borderRadius: 20, padding: 14, marginTop: 10, textAlign: "left" }}>
+        <div style={{ fontSize: "0.78rem", color: "#9a9a9a", marginBottom: 10, lineHeight: 1.5 }}>{t("실제로 운동한 시간을 분으로 입력해요. 시작 시간은 그대로 두고 종료 시간이 맞춰져요.", "Enter the real workout length in minutes. The start time stays; the end time is adjusted.")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {[45, 60, 75, 90, 120].map(n => (
+            <button key={n} type="button" onClick={() => setDurEdit(String(n))} style={{ minHeight: 40, padding: "0 14px", borderRadius: 20, background: String(n) === durEdit ? "#c8a96e" : "none", color: String(n) === durEdit ? "#0a0a0a" : "#c8a96e", border: "1px solid #3a3226", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{n}{t("분", " min")}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="text-input" type="number" inputMode="numeric" aria-label={t("운동 시간(분)", "Minutes")} placeholder={t("분", "min")} value={durEdit} onChange={e => setDurEdit(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+          <button type="button" onClick={applyDuration} style={{ minHeight: 48, padding: "0 20px", borderRadius: 24, border: "none", background: "#c8a96e", color: "#0a0a0a", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer", fontFamily: "inherit" }}>{t("저장", "Save")}</button>
+          <button type="button" onClick={() => setDurEdit(null)} className="ghost-btn" style={{ minHeight: 48 }}>{t("취소", "Cancel")}</button>
+        </div>
+        {ok && todaySession.startTime && <div style={{ fontSize: "0.75rem", color: "#c8a96e", marginTop: 8 }}>{todaySession.startTime} → {addMinutesHHMM(todaySession.startTime, m)} · {formatDuration(todaySession.startTime, addMinutesHHMM(todaySession.startTime, m), lang)}</div>}
+      </div>
+    );
+  }
   function resumeWorkout() {
+    setDurEdit(null);
     persistSession({ finished: false });
     setSummaryOpen(false);
   }
@@ -1822,7 +1870,12 @@ export default function WorkoutTracker() {
                     {st && <button type="button" style={chipBtn} onClick={finishWorkout}>{t("■ 지금 종료", "■ End now")}</button>}
                     {(st || en) && <button type="button" style={{ ...chipBtn, color: "#777", borderColor: "#262626" }} onClick={() => persistSession({ startTime: "", endTime: "" })}>{t("지우기", "Clear")}</button>}
                   </div>
-                  {st && en && !over && <div style={{ fontSize: "0.72rem", color: "#777", marginTop: 8 }}>{t("총", "Total")} {formatDuration(st, en, lang)}</div>}
+                  {st && en && (
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" data-testid="dur-total" onClick={() => (durEdit === null ? openDurEdit() : setDurEdit(null))} style={{ background: "none", border: "none", padding: "4px 0", minHeight: 32, color: "#9a9a9a", fontSize: "0.78rem", cursor: "pointer", fontFamily: "inherit" }}>{t("총", "Total")} {formatDuration(st, en, lang)} <span style={{ color: "#c8a96e" }}>✏️ {t("고치기", "Edit")}</span></button>
+                      {!(summaryOpen) && renderDurEditor()}
+                    </div>
+                  )}
                   {!st && !en && <div style={{ fontSize: "0.72rem", color: "#777", marginTop: 8, lineHeight: 1.5 }}>{t("종료 시간까지 정하면 남은 시간이 계속 보여요.", "Set an end time and the time left stays visible.")}</div>}
                 </div>
               );
@@ -2647,10 +2700,14 @@ export default function WorkoutTracker() {
               <div style={{ fontSize: "0.85rem", color: "#9a9a9a", marginTop: 6 }}>{t("기록은 안전하게 저장됐어요", "Your log is saved")}{dur ? ` · ${todaySession.startTime}–${todaySession.endTime}` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              {stat(t("운동 시간", "Time"), dur || "—")}
+              <button type="button" data-testid="summary-dur" onClick={() => (durEdit === null ? openDurEdit() : setDurEdit(null))} disabled={!todaySession.startTime} style={{ flex: 1, minWidth: 0, background: "#131313", border: `1px solid ${durEdit !== null ? "#c8a96e" : "#262626"}`, borderRadius: 20, padding: "14px 8px", textAlign: "center", color: "#f0ede6", cursor: todaySession.startTime ? "pointer" : "default", fontFamily: "inherit" }}>
+                <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#c8a96e" }}>{dur || "—"}</div>
+                <div style={{ fontSize: "0.72rem", color: "#9a9a9a", marginTop: 4 }}>{t("운동 시간", "Time")}{todaySession.startTime ? " ✏️" : ""}</div>
+              </button>
               {stat(t("운동", "Exercises"), es.length)}
               {stat(t("세트", "Sets"), doneSets.length)}
             </div>
+            {durEdit !== null && <div style={{ marginBottom: 12 }}>{renderDurEditor()}</div>}
             <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
               {stat(t("총 볼륨(kg)", "Volume (kg)"), volume > 0 ? Math.round(volume).toLocaleString() : "—")}
               {stat(t("유산소(분)", "Cardio (min)"), cardioMin > 0 ? cardioMin : "—")}
@@ -2666,7 +2723,7 @@ export default function WorkoutTracker() {
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => { setSummaryOpen(false); setTab("home"); }} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("홈으로", "Back to home")}</button>
+            <button type="button" onClick={() => { setSummaryOpen(false); setDurEdit(null); setTab("home"); }} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("홈으로", "Back to home")}</button>
             <button type="button" onClick={resumeWorkout} style={{ width: "100%", minHeight: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "0.88rem", marginTop: 8, cursor: "pointer", fontFamily: "inherit" }}>{t("더 할래요 (이어서 기록)", "Keep going")}</button>
           </div>
         );
