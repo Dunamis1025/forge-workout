@@ -261,11 +261,45 @@ const EXERCISE_BODY_OVERRIDE = {
 // 어떤 부위 그림을 보여줄지: 운동 이름이 프리셋에 있으면 그 부위 기준(직접 타이핑해서 엉뚱한 부위로 저장된 기록도 올바르게 보임), 아니면 저장된 부위
 function bodyKeyForEntry(entry) {
   if (entry.bodyKey && BODY_MAP[entry.bodyKey]) return entry.bodyKey; // 사용자가 직접 정한 타겟 부위가 최우선
+  { const gp = gripOf(entry); if (gp && BODY_MAP[gp.body]) return gp.body; } // 그립에 따른 부위
   if (EXERCISE_BODY_OVERRIDE[entry.exerciseName]) return EXERCISE_BODY_OVERRIDE[entry.exerciseName];
   const subs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(entry.exerciseName));
   if (subs.length === 0 || subs.includes(entry.subtagId)) return entry.subtagId;
   return subs[0];
 }
+// 그립(손잡이) 종류. 같은 운동이라도 그립에 따라 주로 쓰는 부위가 달라서, 운동 카드에서 고르면 기록에 남고 타겟 부위 그림도 따라 바뀜.
+// body = BODY_MAP 키(그림에 칠할 부위), note = 그 그립이 주로 자극하는 곳 설명
+const GRIP_SETS = {
+  pulldown: [
+    { id: "wide", ko: "와이드(오버핸드)", en: "Wide overhand", body: "back_lat", noteKo: "광배근 바깥쪽·위쪽(등을 넓게)", noteEn: "Outer / upper lats (back width)" },
+    { id: "neutral", ko: "중립(V바·클로즈)", en: "Neutral (V-bar)", body: "back_lat", noteKo: "광배근 중간·안쪽, 이두 도움 많아짐", noteEn: "Mid / inner lats, more biceps help" },
+    { id: "under", ko: "언더핸드(리버스)", en: "Underhand", body: "back_lat", noteKo: "광배근 아래쪽 + 이두 많이 씀", noteEn: "Lower lats + more biceps" },
+  ],
+  row: [
+    { id: "wide", ko: "와이드(오버핸드)", en: "Wide overhand", body: "back_row", noteKo: "등 윗부분·뒷어깨", noteEn: "Upper back / rear delts" },
+    { id: "neutral", ko: "중립(V바·클로즈)", en: "Neutral (V-bar)", body: "back_row", noteKo: "등 중간(능형근·중부 승모)", noteEn: "Mid back (rhomboids, mid traps)" },
+    { id: "under", ko: "언더핸드(리버스)", en: "Underhand", body: "back_lat", noteKo: "광배근 아래쪽 + 이두", noteEn: "Lower lats + biceps" },
+  ],
+  curl: [
+    { id: "straight", ko: "스트레이트바", en: "Straight bar", body: "arms_biceps", noteKo: "이두 전체(양쪽 머리)", noteEn: "Whole biceps" },
+    { id: "ez", ko: "EZ바", en: "EZ bar", body: "arms_biceps", noteKo: "이두, 손목 부담 적음", noteEn: "Biceps, easier on wrists" },
+    { id: "rope", ko: "로프(해머)", en: "Rope (hammer)", body: "arms_biceps", noteKo: "상완근·상완요골근(팔 두께)", noteEn: "Brachialis / brachioradialis" },
+  ],
+  pushdown: [
+    { id: "straight", ko: "스트레이트바", en: "Straight bar", body: "arms_triceps", noteKo: "삼두 전체, 무겁게 가능", noteEn: "Whole triceps, heavier loads" },
+    { id: "vbar", ko: "V바", en: "V-bar", body: "arms_triceps", noteKo: "삼두 바깥·긴 머리", noteEn: "Lateral / long head" },
+    { id: "rope", ko: "로프", en: "Rope", body: "arms_triceps", noteKo: "삼두 바깥쪽, 끝에서 벌려 수축", noteEn: "Lateral head, flare at the bottom" },
+    { id: "reverse", ko: "리버스(언더핸드)", en: "Reverse grip", body: "arms_triceps", noteKo: "삼두 안쪽(내측두)", noteEn: "Medial head" },
+  ],
+};
+const EXERCISE_GRIPS = {
+  "랫풀다운": "pulldown", "풀업": "pulldown", "친업": "pulldown",
+  "시티드 케이블 로우": "row", "원암 케이블 로우": "row",
+  "케이블 컬": "curl",
+  "케이블 푸시다운": "pushdown",
+};
+function gripOptionsFor(name) { return GRIP_SETS[EXERCISE_GRIPS[name]] || null; }
+function gripOf(entry) { const o = gripOptionsFor(entry.exerciseName); return o && entry.variant ? o.find(x => x.id === entry.variant) || null : null; }
 // 새 운동을 추가할 때 사용자가 고르는 타겟 부위. sub = 기록에 저장할 세부 부위(부위별 마지막 운동 보드에 반영됨)
 const TARGETS = {
   chest_upper: { ko: "윗가슴", en: "Upper chest", sub: "chest_upper" },
@@ -387,6 +421,7 @@ function normalizeSessions(raw) {
       exerciseName: e.exerciseName,
       restSeconds: e.restSeconds || DEFAULT_REST,
       ...(typeof e.bodyweight === "boolean" ? { bodyweight: e.bodyweight } : {}), // 맨몸 표시(선택). 없으면 운동 이름으로 자동 판단
+      ...(e.variant && typeof e.variant === "string" ? { variant: e.variant } : {}), // 그립 종류(선택)
       ...(e.bodyKey && typeof e.bodyKey === "string" ? { bodyKey: e.bodyKey } : {}), // 직접 만든 운동의 타겟 부위(선택)
       rounds: e.rounds && e.rounds.length ? e.rounds : [{ id: uid(), sets: e.sets || [{ weight: "", reps: "" }] }],
     })),
@@ -902,6 +937,9 @@ export default function WorkoutTracker() {
     addEntry(targetPick.name, TARGETS[targetChoice].sub, targetChoice);
     setTargetPick(null);
   }
+  function setEntryGrip(entryId, id) {
+    persistSession({ entries: todaySession.entries.map(e => (e.id === entryId ? (e.variant === id ? (({ variant, ...rest }) => rest)(e) : { ...e, variant: id }) : e)) });
+  }
   function setEntryTarget(entryId, key) {
     const tg = TARGETS[key];
     if (!tg) return;
@@ -918,6 +956,7 @@ export default function WorkoutTracker() {
     const past = findPastEntry(canon);
     const subPicked = typeof subArg === "string" ? subArg : (past ? past.subtagId : selectedSubtagId);
     const bodyKey = typeof bodyArg === "string" ? bodyArg : (past && past.bodyKey) || "";
+    const variant = past && past.variant && gripOptionsFor(canon) ? past.variant : ""; // 지난번에 쓴 그립을 기본으로
     // 직접 타이핑한 이름이 프리셋 운동이면 그 운동의 원래 부위로 저장 (예: 가슴 탭에서 '풀업'을 쳐도 등으로 기록)
     const presetSubs = Object.keys(EXERCISE_PRESETS).filter(k => EXERCISE_PRESETS[k].includes(canon));
     const subtagId = presetSubs.length === 0 || presetSubs.includes(subPicked) ? subPicked : presetSubs[0];
@@ -928,6 +967,7 @@ export default function WorkoutTracker() {
       subtagId,
       exerciseName: canon, // 영어로 입력/선택해도 한글 이름으로 저장 → 기록이 갈라지지 않음
       ...(bodyKey ? { bodyKey } : {}),
+      ...(variant ? { variant } : {}),
       restSeconds: DEFAULT_REST,
       rounds: [{ id: uid(), sets: [{ weight: "", reps: "" }] }],
     };
@@ -1061,7 +1101,7 @@ export default function WorkoutTracker() {
   }
 
   function addCardio() {
-    if (!cardioMinutes || Number(cardioMinutes) <= 0) { showToast(t("운동 시간을 입력해주세요", "Enter the duration")); return; }
+    if (!cardioMinutes || Number(cardioMinutes) <= 0) { showToast(t("운동 시간을 입력해주세요", "Enter the duration")); return false; }
     const item = { id: uid(), type: cardioType, minutes: Number(cardioMinutes) };
     if (cardioType === "러닝머신" && cardioIncline !== "" && !isNaN(Number(cardioIncline))) item.incline = Number(cardioIncline);
     if (cardioType === "수영" && cardioDistance !== "" && Number(cardioDistance) > 0) item.distance = Number(cardioDistance);
@@ -1072,6 +1112,7 @@ export default function WorkoutTracker() {
     setCardioDistance("");
     setCardioCalories("");
     showToast(t("유산소 기록 추가됐어요 🏃", "Cardio added 🏃"));
+    return true;
   }
   function removeCardio(id) { persistSession({ cardio: todaySession.cardio.filter(c => c.id !== id) }); }
 
@@ -1910,7 +1951,7 @@ export default function WorkoutTracker() {
                       style={{ touchAction: "pan-y", width: "100%", display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", color: "#f0ede6", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: 0, minHeight: 48, marginBottom: isOpen ? 12 : 0 }}>
                       <GroupArt groupId={entry.groupId} size={isOpen ? 52 : 48} />
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: "block", fontSize: isOpen ? "1.1rem" : "1rem", fontWeight: 700 }}>{exName(entry.exerciseName)}</span>
+                        <span style={{ display: "block", fontSize: isOpen ? "1.1rem" : "1rem", fontWeight: 700 }}>{exName(entry.exerciseName)}{gripOf(entry) ? <span style={{ fontWeight: 500, color: "#c8a96e", fontSize: "0.8rem" }}> · {lang === "en" ? gripOf(entry).en : gripOf(entry).ko}</span> : null}</span>
                         <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", marginTop: 2 }}>{isOpen ? `${group ? gName(group) : ""}${subtag ? ` · ${stName(subtag)}` : ""} · ${totalSetsOf(entry)} ${setsWord}` : summaryOf(entry)}</span>
                       </span>
                       {!isOpen && isDoneEntry(entry) ? (
@@ -1921,6 +1962,27 @@ export default function WorkoutTracker() {
                     </button>
                     {isOpen && (
                     <div style={{ marginTop: 10 }}>
+                      {gripOptionsFor(entry.exerciseName) && (() => {
+                        const opts = gripOptionsFor(entry.exerciseName);
+                        const cur = gripOf(entry);
+                        return (
+                          <div style={{ marginBottom: 12 }} data-testid="grip-row">
+                            <div style={{ fontSize: "0.75rem", color: "#9a9a9a", marginBottom: 8 }}>{t("그립 종류", "Grip")}</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {opts.map(o => {
+                                const on = cur && cur.id === o.id;
+                                return (
+                                  <button key={o.id} type="button" aria-pressed={!!on} onClick={() => setEntryGrip(entry.id, o.id)}
+                                    style={{ minHeight: 44, padding: "8px 14px", borderRadius: 22, background: on ? "#c8a96e" : "#0d0d0d", color: on ? "#0a0a0a" : "#f0ede6", border: `1px solid ${on ? "#c8a96e" : "#262626"}`, fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                                    {lang === "en" ? o.en : o.ko}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {cur && <div style={{ fontSize: "0.78rem", color: "#c8a96e", marginTop: 8, lineHeight: 1.5 }}>🎯 {lang === "en" ? cur.noteEn : cur.noteKo}</div>}
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                         {BODY_MAP[bodyKey] && (
                           <button className="ghost-btn" style={{ fontSize: "0.78rem", padding: "7px 12px", color: diagramIds.has(entry.id) ? "#c8a96e" : "#aaa", borderColor: diagramIds.has(entry.id) ? "#c8a96e" : "#2a2a2a" }} onClick={() => toggleDiagram(entry.id)}>
@@ -2058,7 +2120,7 @@ export default function WorkoutTracker() {
                   <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                     {s.entries.map(e => (
                       <div key={e.id} style={{ fontSize: "0.78rem", color: "#ccc", background: "#1a1a1a", borderRadius: 6, padding: "8px 10px" }}>
-                        <strong>{exName(e.exerciseName)}</strong> — {formatRoundsCompact(e.rounds, t("맨몸", "BW"))}
+                        <strong>{exName(e.exerciseName)}</strong>{gripOf(e) ? ` (${lang === "en" ? gripOf(e).en : gripOf(e).ko})` : ""} — {formatRoundsCompact(e.rounds, t("맨몸", "BW"))}
                       </div>
                     ))}
                     {(s.cardio || []).map(c => (
@@ -2420,7 +2482,7 @@ export default function WorkoutTracker() {
           <div role="dialog" aria-label={t("운동 고르기", "Pick an exercise")} data-testid="picker" style={{ position: "fixed", inset: 0, zIndex: 998, background: "#0a0a0a", overflowY: "auto", padding: "14px 20px calc(28px + env(safe-area-inset-bottom))" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10 }}>
               <button type="button" onClick={goBack} aria-label={t("뒤로", "Back")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#f0ede6", fontSize: "1.6rem", cursor: "pointer" }}>‹</button>
-              <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{groupObj && !q ? `${groupObj.emoji} ${gName(groupObj)}` : t("어느 부위를 할까요?", "Which area?")}</h2>
+              <h2 style={{ fontSize: "1.35rem", fontWeight: 700, flex: 1 }}>{pickerGroup === "cardio" && !q ? `🏃 ${t("유산소", "Cardio")}` : groupObj && !q ? `${groupObj.emoji} ${gName(groupObj)}` : t("어느 부위를 할까요?", "Which area?")}</h2>
               <button type="button" onClick={closePicker} aria-label={t("닫기", "Close")} style={{ width: 48, height: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 10, height: 52, padding: "0 16px", background: "#131313", border: "1px solid #262626", borderRadius: 26, marginBottom: 16 }}>
@@ -2446,6 +2508,33 @@ export default function WorkoutTracker() {
                 </button>
                 <button type="button" className="ghost-btn" style={{ alignSelf: "flex-end", minHeight: 44 }} onClick={saveCustomExercise}>{t("★ 이 이름을 내 목록에 저장", "★ Save to My Exercises")}</button>
               </div>
+            ) : pickerGroup === "cardio" ? (
+              <div data-testid="picker-cardio">
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  {CARDIO_TYPES.map(ct => (
+                    <button key={ct} className={`chip${cardioType === ct ? " active" : ""}`} style={{ minHeight: 44, padding: "8px 16px" }} onClick={() => setCardioType(ct)}>{cardioName(ct)}</button>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: cardioType === "러닝머신" || cardioType === "수영" ? "repeat(3, minmax(0,1fr))" : "repeat(2, minmax(0,1fr))", gap: 8, marginBottom: 12 }}>
+                  <input className="text-input" type="number" inputMode="numeric" placeholder={t("분", "min")} aria-label={t("운동 시간(분)", "Minutes")} value={cardioMinutes} onChange={e => setCardioMinutes(e.target.value)} />
+                  {cardioType === "러닝머신" && (
+                    <input className="text-input" type="number" inputMode="decimal" placeholder={t("경사", "Incline")} value={cardioIncline} onChange={e => setCardioIncline(e.target.value)} />
+                  )}
+                  {cardioType === "수영" && (
+                    <input className="text-input" type="number" inputMode="numeric" placeholder={t("거리(m)", "Dist (m)")} value={cardioDistance} onChange={e => setCardioDistance(e.target.value)} />
+                  )}
+                  <input className="text-input" type="number" inputMode="numeric" placeholder="kcal" value={cardioCalories} onChange={e => setCardioCalories(e.target.value)} />
+                </div>
+                <button type="button" style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }} onClick={() => { if (addCardio()) closePicker(); }}>{t("유산소 추가", "Add cardio")}</button>
+                {todaySession.cardio.length > 0 && (
+                  <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ fontSize: "0.75rem", color: "#9a9a9a" }}>{t("오늘 한 유산소", "Today's cardio")}</div>
+                    {todaySession.cardio.map(c => (
+                      <div key={c.id} style={{ background: "#131313", border: "1px solid #262626", borderRadius: 24, padding: "10px 16px", fontSize: "0.85rem" }}>🏃 {cardioLabel(c)}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : !groupObj ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 }}>
                 {MUSCLE_GROUPS.map(g => (
@@ -2456,6 +2545,12 @@ export default function WorkoutTracker() {
                     {g.id !== "free" && <span style={{ fontSize: "0.72rem", color: "#9a9a9a", fontWeight: 500, marginTop: -6 }}>{t("마지막", "last")} {daysAgoLabel(groupLast(g), lang)}</span>}
                   </button>
                 ))}
+                <button type="button" onClick={() => setPickerGroup("cardio")} data-testid="picker-cardio-tile"
+                  style={{ gridColumn: "1 / -1", minHeight: 76, background: "#131313", border: "1px solid #262626", borderRadius: 28, color: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  <span style={{ fontSize: "1.6rem" }} aria-hidden="true">🏃</span>
+                  <span>{t("유산소", "Cardio")}</span>
+                  <span style={{ fontSize: "0.72rem", color: "#9a9a9a", fontWeight: 500 }}>{t("러닝머신·수영 등", "Treadmill, swim…")}</span>
+                </button>
               </div>
             ) : (
               <div>
