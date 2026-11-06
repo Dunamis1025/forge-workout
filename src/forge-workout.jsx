@@ -412,6 +412,7 @@ function normalizeSessions(raw) {
     date: s.date,
     startTime: s.startTime || "",
     endTime: s.endTime || "",
+    ...(s.finished ? { finished: true } : {}), // "운동 마치기"를 눌렀는지
     cardio: (s.cardio || []).map(c => ({ ...c, id: c.id || uid() })), // 기존 필드 유지 + 선택 필드(incline, calories)
     condition: s.condition || null, // 오늘 컨디션(선택 입력) — 없으면 null, AI 추천 시 무시됨
     entries: (s.entries || []).map(e => ({
@@ -684,6 +685,7 @@ export default function WorkoutTracker() {
   const [targetPick, setTargetPick] = useState(null); // 새 운동 이름을 입력해서 타겟 부위를 고르는 중: { name }
   const [targetChoice, setTargetChoice] = useState("");
   const [targetEditId, setTargetEditId] = useState(null); // 타겟 부위를 바꾸는 중인 기록 카드
+  const [summaryOpen, setSummaryOpen] = useState(false); // 운동 마치기 요약 화면
   const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
   const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
   const [nowTick, setNowTick] = useState(() => Date.now()); // 남은 운동 시간을 1초마다 다시 계산
@@ -937,6 +939,18 @@ export default function WorkoutTracker() {
     addEntry(targetPick.name, TARGETS[targetChoice].sub, targetChoice);
     setTargetPick(null);
   }
+  // 운동 마치기: 종료 시간을 지금으로 맞추고, 완료 표시 + 요약 화면. (기록은 입력할 때마다 이미 저장돼 있음)
+  function finishWorkout() {
+    const patch = { finished: true };
+    if (todaySession.startTime) patch.endTime = nowHHMM();
+    persistSession(patch);
+    setOpenEntryId("none");
+    setSummaryOpen(true);
+  }
+  function resumeWorkout() {
+    persistSession({ finished: false });
+    setSummaryOpen(false);
+  }
   function setEntryGrip(entryId, id) {
     persistSession({ entries: todaySession.entries.map(e => (e.id === entryId ? (e.variant === id ? (({ variant, ...rest }) => rest)(e) : { ...e, variant: id }) : e)) });
   }
@@ -971,7 +985,7 @@ export default function WorkoutTracker() {
       restSeconds: DEFAULT_REST,
       rounds: [{ id: uid(), sets: [{ weight: "", reps: "" }] }],
     };
-    persistSession({ entries: [...todaySession.entries, entry] });
+    persistSession({ entries: [...todaySession.entries, entry], finished: false });
     setExerciseInput("");
     setOpenEntryId(entry.id); // 방금 추가한 운동을 펼침
     setPickerOpen(false);
@@ -1805,7 +1819,7 @@ export default function WorkoutTracker() {
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                     {!st && <button type="button" style={{ ...chipBtn, background: "#c8a96e", color: "#0a0a0a", border: "none" }} onClick={() => persistSession({ startTime: nowHHMM() })}>{t("▶ 지금 시작", "▶ Start now")}</button>}
                     {!en && [45, 60, 90].map(n => <button key={n} type="button" style={chipBtn} onClick={() => addMin(n)}>{t(`+${n}분`, `+${n} min`)}</button>)}
-                    {st && <button type="button" style={chipBtn} onClick={() => persistSession({ endTime: nowHHMM() })}>{t("■ 지금 종료", "■ End now")}</button>}
+                    {st && <button type="button" style={chipBtn} onClick={finishWorkout}>{t("■ 지금 종료", "■ End now")}</button>}
                     {(st || en) && <button type="button" style={{ ...chipBtn, color: "#777", borderColor: "#262626" }} onClick={() => persistSession({ startTime: "", endTime: "" })}>{t("지우기", "Clear")}</button>}
                   </div>
                   {st && en && !over && <div style={{ fontSize: "0.72rem", color: "#777", marginTop: 8 }}>{t("총", "Total")} {formatDuration(st, en, lang)}</div>}
@@ -2089,6 +2103,15 @@ export default function WorkoutTracker() {
             {entries.length > 0 && (
               <button type="button" onClick={() => openPicker()} style={bigBtn}>{t("＋ 다른 운동 추가", "＋ Add another exercise")}</button>
             )}
+            {entries.length > 0 && (todaySession.finished ? (
+              <div data-testid="finished-card" style={{ marginTop: 12, background: "#131313", border: "1px solid #3a3226", borderRadius: 24, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 32, height: 32, borderRadius: 16, background: "#c8a96e", color: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, flexShrink: 0 }} aria-hidden="true">✓</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: "0.9rem", fontWeight: 700 }}>{t("오늘 운동을 마쳤어요", "Workout finished")}{todaySession.startTime && todaySession.endTime ? <span style={{ display: "block", fontSize: "0.75rem", color: "#9a9a9a", fontWeight: 500, marginTop: 2 }}>{todaySession.startTime}–{todaySession.endTime} · {formatDuration(todaySession.startTime, todaySession.endTime, lang)}</span> : null}</span>
+                <button type="button" className="ghost-btn" style={{ minHeight: 40 }} onClick={() => setSummaryOpen(true)}>{t("요약", "Summary")}</button>
+              </div>
+            ) : (
+              <button type="button" data-testid="finish-btn" onClick={finishWorkout} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, marginTop: 12, cursor: "pointer", fontFamily: "inherit" }}>{t("🏁 운동 마치기", "🏁 Finish workout")}</button>
+            ))}
           </div>
         );
       })()}
@@ -2600,6 +2623,52 @@ export default function WorkoutTracker() {
             </div>
           )}
           </>
+        );
+      })()}
+
+      {summaryOpen && (() => {
+        const es = todaySession.entries;
+        const allSets = es.flatMap(e => e.rounds.flatMap(r => r.sets));
+        const doneSets = allSets.filter(x => x.reps !== "");
+        const volume = doneSets.reduce((sum, x) => sum + (Number(x.weight) || 0) * (Number(x.reps) || 0), 0);
+        const cardioMin = todaySession.cardio.reduce((sum, c) => sum + Number(c.minutes || 0), 0);
+        const dur = todaySession.startTime && todaySession.endTime ? formatDuration(todaySession.startTime, todaySession.endTime, lang) : null;
+        const stat = (label, value) => (
+          <div style={{ flex: 1, minWidth: 0, background: "#131313", border: "1px solid #262626", borderRadius: 20, padding: "14px 8px", textAlign: "center" }}>
+            <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#c8a96e" }}>{value}</div>
+            <div style={{ fontSize: "0.72rem", color: "#9a9a9a", marginTop: 4 }}>{label}</div>
+          </div>
+        );
+        return (
+          <div role="dialog" aria-label={t("오늘 운동 요약", "Workout summary")} data-testid="summary" style={{ position: "fixed", inset: 0, zIndex: 999, background: "#0a0a0a", overflowY: "auto", padding: "28px 20px calc(28px + env(safe-area-inset-bottom))" }}>
+            <div style={{ textAlign: "center", marginBottom: 22 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 32, background: "#c8a96e", color: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.9rem", fontWeight: 700, margin: "0 auto 14px" }} aria-hidden="true">✓</div>
+              <h2 style={{ fontSize: "1.5rem", fontWeight: 700 }}>{t("오늘 운동 끝! 수고했어요", "Workout done. Great job!")}</h2>
+              <div style={{ fontSize: "0.85rem", color: "#9a9a9a", marginTop: 6 }}>{t("기록은 안전하게 저장됐어요", "Your log is saved")}{dur ? ` · ${todaySession.startTime}–${todaySession.endTime}` : ""}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              {stat(t("운동 시간", "Time"), dur || "—")}
+              {stat(t("운동", "Exercises"), es.length)}
+              {stat(t("세트", "Sets"), doneSets.length)}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {stat(t("총 볼륨(kg)", "Volume (kg)"), volume > 0 ? Math.round(volume).toLocaleString() : "—")}
+              {stat(t("유산소(분)", "Cardio (min)"), cardioMin > 0 ? cardioMin : "—")}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+              {es.map(e => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#131313", border: "1px solid #262626", borderRadius: 20, padding: "10px 14px" }}>
+                  <GroupArt groupId={e.groupId} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 700 }}>{exName(e.exerciseName)}{gripOf(e) ? ` · ${lang === "en" ? gripOf(e).en : gripOf(e).ko}` : ""}</div>
+                    <div style={{ fontSize: "0.72rem", color: "#9a9a9a", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatRoundsCompact(e.rounds, t("맨몸", "BW"))}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => { setSummaryOpen(false); setTab("home"); }} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("홈으로", "Back to home")}</button>
+            <button type="button" onClick={resumeWorkout} style={{ width: "100%", minHeight: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "0.88rem", marginTop: 8, cursor: "pointer", fontFamily: "inherit" }}>{t("더 할래요 (이어서 기록)", "Keep going")}</button>
+          </div>
         );
       })()}
 
