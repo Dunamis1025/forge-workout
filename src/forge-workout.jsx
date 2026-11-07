@@ -568,6 +568,24 @@ function formatDate(dateStr, lang) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
+// 시간 입력칸. iOS Safari는 <input type="time"> 안의 숫자를 칸 위쪽에 붙여 그려서(가운데 정렬이 안 됨),
+// 화면에는 가운데 정렬한 글자를 보여주고 진짜 입력칸은 투명하게 그 위에 덮어서 누르면 기본 시간 선택기가 열리게 함.
+function TimeField({ value, onChange, lang, label }) {
+  let text = "--:--";
+  if (value) {
+    const [h, m] = value.split(":").map(Number);
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    const mm = String(m).padStart(2, "0");
+    text = lang === "en" ? `${h12}:${mm} ${h < 12 ? "AM" : "PM"}` : `${h < 12 ? "오전" : "오후"} ${h12}:${mm}`;
+  }
+  return (
+    <div style={{ position: "relative", height: 48, borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      <span style={{ fontSize: "1.05rem", fontWeight: 700, color: value ? "#f0ede6" : "#555", pointerEvents: "none" }}>{text}</span>
+      <input type="time" aria-label={label} value={value} onChange={onChange}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, margin: 0, padding: 0, border: "none", fontSize: 16, WebkitAppearance: "none", appearance: "none", cursor: "pointer" }} />
+    </div>
+  );
+}
 function minutesBetween(start, end) {
   if (!start || !end) return null;
   const [sh, sm] = start.split(":").map(Number);
@@ -1846,7 +1864,6 @@ export default function WorkoutTracker() {
               const total = st && en ? Math.max(1, Math.round((endMs - startMs) / 1000)) : 1;
               const pct = rem === null ? 0 : Math.min(100, Math.max(0, ((total - rem) / total) * 100));
               const addMin = n => { const base = st ? toMs(st) : Date.now(); const d = new Date(base + n * 60000); persistSession({ endTime: d.toTimeString().slice(0, 5) }); };
-              const inputStyle = { display: "block", width: "100%", minWidth: 0, boxSizing: "border-box", WebkitAppearance: "none", appearance: "none", minHeight: 48, borderRadius: 16, background: "#0d0d0d", border: "1px solid #262626", color: "#f0ede6", padding: "0 12px", fontSize: "1.05rem", fontWeight: 700, fontFamily: "inherit", textAlign: "center" };
               const chipBtn = { minHeight: 40, padding: "0 14px", borderRadius: 20, background: "none", border: "1px solid #3a3226", color: "#c8a96e", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
               return (
                 <div style={{ background: "#131313", border: `1px solid ${over ? "#6b3030" : "#262626"}`, borderRadius: 24, padding: "14px 16px", marginBottom: 14 }}>
@@ -1867,11 +1884,11 @@ export default function WorkoutTracker() {
                   <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 10 }}>
                     <label style={{ minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("시작", "Start")}</span>
-                      <input type="time" style={inputStyle} value={st} onChange={e => persistSession({ startTime: e.target.value })} />
+                      <TimeField value={st} lang={lang} label={t("시작 시간", "Start time")} onChange={e => persistSession({ startTime: e.target.value })} />
                     </label>
                     <label style={{ minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: "0.7rem", color: "#777", marginBottom: 4 }}>{t("종료", "End")}</span>
-                      <input type="time" style={inputStyle} value={en} onChange={e => persistSession({ endTime: e.target.value })} />
+                      <TimeField value={en} lang={lang} label={t("종료 시간", "End time")} onChange={e => persistSession({ endTime: e.target.value })} />
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
