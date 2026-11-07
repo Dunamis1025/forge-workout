@@ -610,6 +610,16 @@ function getLastDoneMap(sessions, excludeToday) {
   return map;
 }
 
+// 운동 이름별로 가장 최근에 한 날짜 (오늘 포함)
+function getLastByName(sessions) {
+  const map = {};
+  for (const s of [...sessions].sort((a, b) => b.date.localeCompare(a.date))) {
+    for (const e of s.entries) { if (!map[e.exerciseName]) map[e.exerciseName] = s.date; }
+  }
+  return map;
+}
+function daysSince(dateStr) { return Math.round((new Date(todayISO()) - new Date(dateStr)) / 86400000); }
+
 function getAllExerciseNames(sessions) {
   const set = new Set();
   sessions.forEach(s => s.entries.forEach(e => set.add(e.exerciseName)));
@@ -2541,6 +2551,11 @@ export default function WorkoutTracker() {
         const rowBtn = { width: "100%", minHeight: 56, background: "#131313", border: "1px solid #262626", borderRadius: 20, color: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 18px", fontSize: "1rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" };
         const groupObj = pickerGroup ? MUSCLE_GROUPS.find(g => g.id === pickerGroup) : null;
         const lastAll = getLastDoneMap(sessions, false);
+        const lastByName = getLastByName(sessions);
+        // 운동 이름 줄 오른쪽에 "N일 전" (7일 이상 지났으면 금색으로 눈에 띄게)
+        const lastTag = n => { const d = lastByName[n]; return (
+          <span data-testid="last-tag" style={{ fontSize: "0.78rem", fontWeight: 600, flexShrink: 0, color: d && daysSince(d) >= 7 ? "#c8a96e" : "#777" }}>{d ? daysAgoLabel(d, lang) : t("기록 없음", "No record")}</span>
+        ); };
         const groupLast = g => { const ds = g.subtags.map(st => lastAll[st.id]).filter(Boolean).sort(); return ds.length ? ds[ds.length - 1] : ""; };
         const goBack = () => { if (q) setExerciseInput(""); else if (pickerGroup) setPickerGroup(null); else closePicker(); };
         const custom = customExercises[selectedSubtagId] || [];
@@ -2575,7 +2590,10 @@ export default function WorkoutTracker() {
                   return (
                     <button key={item.name + item.subtagId} type="button" style={rowBtn} onClick={() => addEntry(item.name, item.subtagId)}>
                       <span style={{ minWidth: 0 }}>{exName(item.name)}</span>
-                      <span style={{ fontSize: "0.72rem", color: "#777", flexShrink: 0 }}>{g ? gName(g) : ""}{st && g.id !== "free" ? ` · ${stName(st)}` : ""}</span>
+                      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                        {lastTag(item.name)}
+                        <span style={{ fontSize: "0.68rem", color: "#777" }}>{g ? gName(g) : ""}{st && g.id !== "free" ? ` · ${stName(st)}` : ""}</span>
+                      </span>
                     </button>
                   );
                 })}
@@ -2642,7 +2660,10 @@ export default function WorkoutTracker() {
                     <div key={n} style={{ display: "flex", gap: 8 }}>
                       <button type="button" style={{ ...rowBtn, flex: 1, minWidth: 0, ...(isCustom ? { borderColor: "#3a3226", color: "#c8a96e" } : {}) }} onClick={() => addEntry(n, selectedSubtagId)}>
                         <span style={{ minWidth: 0 }}>{isCustom ? "★ " : ""}{exName(n)}</span>
-                        <span style={{ color: "#c8a96e", fontSize: "1.3rem", flexShrink: 0 }} aria-hidden="true">＋</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                          {lastTag(n)}
+                          <span style={{ color: "#c8a96e", fontSize: "1.3rem" }} aria-hidden="true">＋</span>
+                        </span>
                       </button>
                       {isCustom && (
                         <button type="button" aria-label={t("내 목록에서 지우기", "Remove from My Exercises")} className="ghost-btn" style={{ width: 56, flexShrink: 0, borderRadius: 20 }}
