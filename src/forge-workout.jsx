@@ -568,6 +568,11 @@ function formatDate(dateStr, lang) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
+// 세션 하루의 총 볼륨(kg) = 무게 × 렙 (렙을 적은 세트만)
+function sessionVolume(sess) {
+  return sess.entries.reduce((sum, e) => sum + e.rounds.reduce((rs, r) => rs + r.sets.reduce((ss, x) => ss + (x.reps !== "" ? (Number(x.weight) || 0) * (Number(x.reps) || 0) : 0), 0), 0), 0);
+}
+function compactNum(n) { return n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)); }
 // 시간 입력칸. iOS Safari는 <input type="time"> 안의 숫자를 칸 위쪽에 붙여 그려서(가운데 정렬이 안 됨),
 // 화면에는 가운데 정렬한 글자를 보여주고 진짜 입력칸은 투명하게 그 위에 덮어서 누르면 기본 시간 선택기가 열리게 함.
 function TimeField({ value, onChange, lang, label }) {
@@ -729,6 +734,7 @@ export default function WorkoutTracker() {
   const [durEdit, setDurEdit] = useState(null); // 총 운동 시간을 고치는 중이면 입력값(분, 문자열), 아니면 null
   const [listAddOpen, setListAddOpen] = useState(false); // 부위 목록 아래 "새 운동 만들기" 입력창
   const [listAddName, setListAddName] = useState("");
+  const [volOpen, setVolOpen] = useState(false); // 요약 화면의 총 볼륨 추이 그래프
   const [summaryOpen, setSummaryOpen] = useState(false); // 운동 마치기 요약 화면
   const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
   const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
@@ -2769,9 +2775,54 @@ export default function WorkoutTracker() {
             </div>
             {durEdit !== null && <div style={{ marginBottom: 12 }}>{renderDurEditor()}</div>}
             <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-              {stat(t("총 볼륨(kg)", "Volume (kg)"), volume > 0 ? Math.round(volume).toLocaleString() : "—")}
+              <button type="button" data-testid="summary-vol" aria-expanded={volOpen} onClick={() => setVolOpen(v => !v)} style={{ flex: 1, minWidth: 0, background: "#131313", border: `1px solid ${volOpen ? "#c8a96e" : "#262626"}`, borderRadius: 20, padding: "14px 8px", textAlign: "center", color: "#f0ede6", cursor: "pointer", fontFamily: "inherit" }}>
+                <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#c8a96e" }}>{volume > 0 ? Math.round(volume).toLocaleString() : "—"}</div>
+                <div style={{ fontSize: "0.72rem", color: "#9a9a9a", marginTop: 4 }}>{t("총 볼륨(kg)", "Volume (kg)")} {volOpen ? "▴" : "📈"}</div>
+              </button>
               {stat(t("유산소(분)", "Cardio (min)"), cardioMin > 0 ? cardioMin : "—")}
             </div>
+            {volOpen && (() => {
+              const series = [...sessions].sort((a, b) => a.date.localeCompare(b.date)).map(x => ({ date: x.date, v: sessionVolume(x) })).filter(x => x.v > 0).slice(-10);
+              if (series.length === 0) return null;
+              const max = Math.max(...series.map(x => x.v));
+              const cur = series[series.length - 1];
+              const prev = series.length > 1 ? series[series.length - 2] : null;
+              const others = series.slice(0, -1);
+              const avg = others.length ? others.reduce((sum, x) => sum + x.v, 0) / others.length : null;
+              const best = Math.max(...series.map(x => x.v));
+              const diff = prev ? cur.v - prev.v : 0;
+              const pct = prev ? Math.round((diff / prev.v) * 100) : 0;
+              const up = diff >= 0;
+              return (
+                <div data-testid="vol-chart" style={{ background: "#131313", border: "1px solid #3a3226", borderRadius: 24, padding: "16px 14px", marginBottom: 20 }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: 4 }}>{t("총 볼륨 추이", "Volume trend")} <span style={{ fontWeight: 500, color: "#9a9a9a" }}>· {t(`최근 ${series.length}번`, `last ${series.length}`)}</span></div>
+                  {prev ? (
+                    <div style={{ fontSize: "0.82rem", color: up ? "#c8a96e" : "#d08a76", marginBottom: 14 }}>
+                      {up ? "▲" : "▼"} {t("지난번보다", "vs last time")} {up ? "+" : "−"}{Math.abs(Math.round(diff)).toLocaleString()}kg ({up ? "+" : "−"}{Math.abs(pct)}%)
+                    </div>
+                  ) : <div style={{ fontSize: "0.82rem", color: "#9a9a9a", marginBottom: 14 }}>{t("비교할 이전 기록이 아직 없어요. 다음 운동부터 비교돼요.", "No earlier session yet. Comparison starts next time.")}</div>}
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 130 }}>
+                    {series.map((x, i) => {
+                      const isCur = i === series.length - 1;
+                      return (
+                        <div key={x.date} style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: "0.62rem", color: isCur ? "#c8a96e" : "#9a9a9a", fontWeight: isCur ? 700 : 500 }}>{compactNum(x.v)}</span>
+                          <div style={{ width: "100%", height: `${Math.max(6, Math.round((x.v / max) * 92))}px`, borderRadius: 6, background: isCur ? "#c8a96e" : "#3a3a3a" }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    {series.map(x => <span key={x.date} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: "0.6rem", color: "#777" }}>{Number(x.date.slice(5, 7))}/{Number(x.date.slice(8, 10))}</span>)}
+                  </div>
+                  <div style={{ display: "flex", gap: 16, marginTop: 14, fontSize: "0.75rem", color: "#9a9a9a", flexWrap: "wrap" }}>
+                    {avg !== null && <span>{t("이전 평균", "Prev. avg")} <b style={{ color: "#f0ede6" }}>{Math.round(avg).toLocaleString()}kg</b></span>}
+                    <span>{t("최고", "Best")} <b style={{ color: "#f0ede6" }}>{Math.round(best).toLocaleString()}kg</b>{cur.v === best && series.length > 1 ? " 🏆" : ""}</span>
+                  </div>
+                  <div style={{ fontSize: "0.68rem", color: "#777", marginTop: 10, lineHeight: 1.5 }}>{t("볼륨 = 무게 × 횟수의 합이에요. 그날 한 운동 종류에 따라 달라질 수 있어요.", "Volume = weight × reps. It varies with which exercises you did.")}</div>
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
               {es.map(e => (
                 <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#131313", border: "1px solid #262626", borderRadius: 20, padding: "10px 14px" }}>
@@ -2783,7 +2834,7 @@ export default function WorkoutTracker() {
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => { setSummaryOpen(false); setDurEdit(null); setTab("home"); }} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("홈으로", "Back to home")}</button>
+            <button type="button" onClick={() => { setSummaryOpen(false); setDurEdit(null); setVolOpen(false); setTab("home"); }} style={{ width: "100%", minHeight: 56, borderRadius: 28, border: "none", background: "#c8a96e", color: "#0a0a0a", fontSize: "1rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t("홈으로", "Back to home")}</button>
             <button type="button" onClick={resumeWorkout} style={{ width: "100%", minHeight: 48, background: "none", border: "none", color: "#9a9a9a", fontSize: "0.88rem", marginTop: 8, cursor: "pointer", fontFamily: "inherit" }}>{t("더 할래요 (이어서 기록)", "Keep going")}</button>
           </div>
         );
