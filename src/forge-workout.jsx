@@ -727,6 +727,8 @@ export default function WorkoutTracker() {
   const [targetChoice, setTargetChoice] = useState("");
   const [targetEditId, setTargetEditId] = useState(null); // 타겟 부위를 바꾸는 중인 기록 카드
   const [durEdit, setDurEdit] = useState(null); // 총 운동 시간을 고치는 중이면 입력값(분, 문자열), 아니면 null
+  const [listAddOpen, setListAddOpen] = useState(false); // 부위 목록 아래 "새 운동 만들기" 입력창
+  const [listAddName, setListAddName] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false); // 운동 마치기 요약 화면
   const [swipe, setSwipe] = useState(null); // { id, dx } 손가락을 따라 움직이는 중인 운동 카드
   const [swipeOpenId, setSwipeOpenId] = useState(null); // 삭제/취소 버튼이 열려 있는 운동 카드
@@ -916,12 +918,14 @@ export default function WorkoutTracker() {
   function adjustRest(delta) { setRestTimer(rt => (rt ? { ...rt, endAt: rt.endAt + delta * 1000 } : rt)); }
 
   function openPicker(gid, subId) {
+    setListAddOpen(false); setListAddName("");
     if (gid) { selectGroup(gid); setPickerGroup(gid); if (subId) setSelectedSubtagId(subId); } else { setPickerGroup(null); setExerciseInput(""); }
     setTab("today");
     setPickerOpen(true);
   }
   function closePicker() {
     setPickerOpen(false);
+    setListAddOpen(false); setListAddName("");
   }
 
   function selectGroup(gid) {
@@ -940,8 +944,8 @@ export default function WorkoutTracker() {
     return dates.length ? dates[dates.length - 1] : "";
   }
 
-  function saveCustomExercise() {
-    const name = canonicalName(exerciseInput);
+  function saveCustomExercise(nameArg) {
+    const name = canonicalName(typeof nameArg === "string" ? nameArg : exerciseInput);
     if (!name) { showToast(t("저장할 운동 이름을 입력해주세요", "Enter an exercise name to save")); return; }
     const existing = customExercises[selectedSubtagId] || [];
     if (existing.includes(name) || (EXERCISE_PRESETS[selectedSubtagId] || []).includes(name)) { showToast(t("이미 목록에 있어요", "Already in the list")); return; }
@@ -949,6 +953,7 @@ export default function WorkoutTracker() {
     setCustomExercises(next);
     saveCustomExercises(next);
     showToast(t("내 운동 목록에 저장했어요 ★", "Saved to My Exercises ★"));
+    return true;
   }
 
   function removeCustomExercise(name) {
@@ -2668,7 +2673,7 @@ export default function WorkoutTracker() {
                 {groupObj.id !== "free" && (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
                     {groupObj.subtags.map(st => (
-                      <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px", fontSize: "0.85rem" }} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); }}>{stName(st)} · {daysAgoLabel(lastAll[st.id], lang)}</button>
+                      <button key={st.id} className={`chip${selectedSubtagId === st.id ? " active" : ""}`} style={{ minHeight: 40, padding: "8px 16px", fontSize: "0.85rem" }} onClick={() => { setSelectedSubtagId(st.id); setExerciseInput(""); setShowAllPresets(false); setListAddOpen(false); setListAddName(""); }}>{stName(st)} · {daysAgoLabel(lastAll[st.id], lang)}</button>
                     ))}
                   </div>
                 )}
@@ -2692,7 +2697,24 @@ export default function WorkoutTracker() {
                     <button type="button" className="ghost-btn" style={{ minHeight: 48, borderRadius: 24 }} onClick={() => setShowAllPresets(v => !v)}>{showAllPresets ? t("접기 ▴", "Show less ▴") : t(`더보기 (${hiddenCount}) ▾`, `Show more (${hiddenCount}) ▾`)}</button>
                   )}
                 </div>
-                <div style={{ fontSize: "0.75rem", color: "#777", textAlign: "center", marginTop: 16, lineHeight: 1.6 }}>{t("목록에 없으면 위 검색창에 이름을 쓰고 '직접 추가'를 눌러요.", "Not in the list? Type the name above and tap 'add as typed'.")}</div>
+                {listAddOpen ? (
+                  <div data-testid="list-add" style={{ background: "#131313", border: "1px solid #3a3226", borderRadius: 24, padding: 16, marginTop: 14 }}>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: 4 }}>{t("새 운동 만들기", "Create an exercise")}</div>
+                    <div style={{ fontSize: "0.75rem", color: "#9a9a9a", marginBottom: 12, lineHeight: 1.5 }}>
+                      {groupObj.id !== "free" && groupObj.subtags.find(x => x.id === selectedSubtagId) ? t(`「${stName(groupObj.subtags.find(x => x.id === selectedSubtagId))}」 목록에 저장돼요. 위에서 다른 세부 부위를 고르면 거기에 저장돼요.`, `Saved under ${stName(groupObj.subtags.find(x => x.id === selectedSubtagId))}. Pick another sub-area above to change it.`) : t("이 목록에 저장돼요.", "Saved to this list.")}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input className="text-input" autoFocus placeholder={t("운동 이름 (예: 고정 랫풀다운 머신)", "Exercise name")} value={listAddName} onChange={e => setListAddName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && saveCustomExercise(listAddName)) { setListAddName(""); setListAddOpen(false); } }} style={{ flex: 1, minWidth: 0 }} />
+                      <button type="button" style={{ minHeight: 48, padding: "0 18px", borderRadius: 24, border: "none", background: "#c8a96e", color: "#0a0a0a", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer", fontFamily: "inherit" }}
+                        onClick={() => { if (saveCustomExercise(listAddName)) { setListAddName(""); setListAddOpen(false); } }}>{t("저장", "Save")}</button>
+                    </div>
+                    <button type="button" onClick={() => { setListAddOpen(false); setListAddName(""); }} style={{ background: "none", border: "none", color: "#9a9a9a", fontSize: "0.8rem", marginTop: 8, minHeight: 36, cursor: "pointer", fontFamily: "inherit" }}>{t("취소", "Cancel")}</button>
+                  </div>
+                ) : (
+                  <button type="button" data-testid="list-add-btn" onClick={() => setListAddOpen(true)} style={{ ...rowBtn, justifyContent: "center", gap: 8, border: "1px dashed #3a3226", color: "#c8a96e", marginTop: 14, width: "100%" }}>{t("＋ 새 운동 만들기", "＋ Create a new exercise")}</button>
+                )}
+                <div style={{ fontSize: "0.75rem", color: "#777", textAlign: "center", marginTop: 16, lineHeight: 1.6 }}>{t("만든 운동은 ★ 표시로 목록에 남아요. 위 검색창에 이름을 쓰고 '직접 추가'를 눌러도 돼요.", "Created exercises stay in the list with a ★. You can also type a name above and tap 'add as typed'.")}</div>
               </div>
             )}
           </div>
